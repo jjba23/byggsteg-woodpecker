@@ -71,15 +71,16 @@ poll_for_job_success() {
 }
 
 main() {
-    replaced_string="$PLUGIN_BYGGSTEG_JOB_CODE"
+    BYGGSTEG_JOB_CODE="$PLUGIN_BYGGSTEG_JOB_CODE"
 
-    for placeholder in $(echo "$PLUGIN_BYGGSTEG_JOB_CODE" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do
-        var_name=$(echo "$placeholder" | sed 's/^%%//;s/%%$//')
-        var_value=$(eval echo "\$$var_name")
-        replaced_string=$(echo "$replaced_string" | sed "s#$(echo "$placeholder" | sed 's/%/\\%/g')#${var_value}#g")
+    for PLACEHOLDER in $(echo "$PLUGIN_BYGGSTEG_JOB_CODE" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do
+        VAR_NAME=$(echo "$PLACEHOLDER" | sed 's/^%%//;s/%%$//')
+        VAR_VALUE=$(eval echo "\$$VAR_NAME")
+        BYGGSTEG_JOB_CODE=$(echo "$BYGGSTEG_JOB_CODE" | sed "s#$(echo "$PLACEHOLDER" | sed 's/%/\\%/g')#${VAR_VALUE}#g")
     done
 
-    echo "$replaced_string"
+    log_info "Sending byggsteg job code:"
+    echo "$BYGGSTEG_JOB_CODE"
 
     log_info "POST call to $PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit"
     curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
@@ -87,7 +88,7 @@ main() {
       -H 'Content-Type: application/x-www-form-urlencoded' \
       --data-urlencode "username=$PLUGIN_BYGGSTEG_USERNAME" \
       --data-urlencode "password=$PLUGIN_BYGGSTEG_KEY" \
-      --data-urlencode "job-code=$PLUGIN_BYGGSTEG_JOB_CODE" \
+      --data-urlencode "job-code=$BYGGSTEG_JOB_CODE" \
           > byggsteg-submit-job-response.json
     jq . < byggsteg-submit-job-response.json
 
