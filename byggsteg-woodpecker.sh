@@ -84,6 +84,10 @@ main() {
     BYGGSTEG_LOG_ID=$(jq -r '.["log-id"]' < byggsteg-submit-job-response.json)
     log_info "Job created at Byggsteg successfully, log-id: $BYGGSTEG_LOG_ID"
 
+    BYGGSTEG_JOB_SUCCEEDED=0
+    BYGGSTEG_JOB_FAILED=0
+    BYGGSTEG_JOB_IN_PROGRESS=0
+    POLL_COUNT=0
     # start polling for job status until success or limit reached
     poll_for_job_success
 }
