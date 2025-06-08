@@ -34,27 +34,32 @@ log_info() {
   printf "\n[INFO][%s] %s\n" "$(get_timestamp)" "$1"
 }
 
+from_jq() {
+    JQ_FILE_CONTENT=$(cat "$2" | echo -E)
+    printf "%s" "$JQ_FILE_CONTENT" | jq "$1"
+}
+
 poll_for_job_success() {
     while [ "$POLL_COUNT" -lt "$PLUGIN_POLL_LIMIT" ]; do        
         log_info "GET call to $PLUGIN_BYGGSTEG_URL/api/v1/logs/$BYGGSTEG_LOG_ID"      
         curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/logs/$BYGGSTEG_LOG_ID" \
             > byggsteg-log-response.json
-        jq . < byggsteg-log-response.json
+        from_jq "." "byggsteg-log-response.json"
 
         POLL_COUNT=$(( POLL_COUNT + 1 ))
 
-        BYGGSTEG_JOB_SUCCEEDED=$(jq -r '.["success"]' < byggsteg-log-response.json)
-        BYGGSTEG_JOB_FAILURE=$(jq -r '.["failure"]'  < byggsteg-log-response.json)
-        BYGGSTEG_JOB_IN_PROGRESS=$(jq -r '.["in-progress"]'  < byggsteg-log-response.json)
+        BYGGSTEG_JOB_SUCCEEDED=$(from_jq '.["success"]' "byggsteg-log-response.json")
+        BYGGSTEG_JOB_FAILURE=$(from_jq '.["failure"]' "byggsteg-log-response.json")
+        BYGGSTEG_JOB_IN_PROGRESS=$(from_jq '.["in-progress"]' "byggsteg-log-response.json")
 
         if [ "$BYGGSTEG_JOB_SUCCEEDED" -eq 1 ]; then
-            cat byggsteg-log-response.json
+            from_jq '.["log-data"]' "byggsteg-log-response.json"
             log_info "Byggsteg job completed successfully!"
             exit 0
         fi
 
         if [ "$BYGGSTEG_JOB_FAILURE" -eq 1 ]; then
-            cat byggsteg-log-response.json
+            from_jq '.["log-data"]' "byggsteg-log-response.json"
             log_error "Byggsteg job failed!"
             exit 1
         fi      
@@ -89,9 +94,9 @@ main() {
       --data-urlencode "password=$PLUGIN_BYGGSTEG_KEY" \
       --data-urlencode "job-code=$BYGGSTEG_JOB_CODE" \
           > byggsteg-submit-job-response.json
-    jq . < byggsteg-submit-job-response.json
+    from_jq "." "byggsteg-submit-job-response.json"
 
-    BYGGSTEG_LOG_ID=$(jq -r '.["log-id"]' < byggsteg-submit-job-response.json)
+    BYGGSTEG_LOG_ID=$(from_jq '.["log-id"]' "byggsteg-submit-job-response.json")
     log_info "Job created at Byggsteg successfully, log-id: $BYGGSTEG_LOG_ID"
 
     BYGGSTEG_JOB_SUCCEEDED=0
