@@ -48,19 +48,18 @@ poll_for_job_success() {
         BYGGSTEG_JOB_IN_PROGRESS=$(jq -r '.["in-progress"]'  < byggsteg-log-response.json)
 
         if [ "$BYGGSTEG_JOB_SUCCEEDED" -eq 1 ]; then
-            jq -r '.["log-data"]' < byggsteg-log-response.json
+            cat byggsteg-log-response.json
             log_info "Byggsteg job completed successfully!"
             exit 0
         fi
 
         if [ "$BYGGSTEG_JOB_FAILURE" -eq 1 ]; then
-            jq -r '.["log-data"]' < byggsteg-log-response.json
+            cat byggsteg-log-response.json
             log_error "Byggsteg job failed!"
             exit 1
         fi      
 
         if [ "$BYGGSTEG_JOB_IN_PROGRESS" -eq 1 ]; then
-            jq -r '.["log-data"]' < byggsteg-log-response.json
             log_info "Byggsteg job in progress... will poll again for status in $PLUGIN_POLL_INTERVAL_SECONDS seconds"
             sleep "$PLUGIN_POLL_INTERVAL_SECONDS"
         fi
