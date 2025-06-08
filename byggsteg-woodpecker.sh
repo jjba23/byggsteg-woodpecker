@@ -73,10 +73,10 @@ poll_for_job_success() {
 main() {
     replaced_string="$PLUGIN_BYGGSTEG_JOB_CODE"
 
-    for placeholder in $(echo "$original_string" | grep -Eo '\$\$[A-Z0-9_]+\$\$' | sort -u); do
-        var_name=$(echo "$placeholder" | sed 's/^\$\$//;s/\$\$s$//')
+    for placeholder in $(echo "$original_string" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do
+        var_name=$(echo "$placeholder" | sed 's/^%%//;s/%%$//')
         var_value=$(eval echo "\$$var_name")
-        replaced_string=$(echo "$replaced_string" | sed "s#$(echo "$placeholder" | sed 's/\$/\\$/g')#${var_value}#g")
+        replaced_string=$(echo "$replaced_string" | sed "s#$(echo "$placeholder" | sed 's/%/\\%/g')#${var_value}#g")
     done
 
     echo "$replaced_string"
