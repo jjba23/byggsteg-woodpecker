@@ -1,2 +1,34 @@
+#+title: Byggsteg Woodpecker plugin
 
-* Byggsteg Woodpecker plugin
+Integrate Byggsteg pipelines easily into your Woodpecker CI setup (for example at Codeberg).
+
+Licensed under the Lesser GNU General Public License v3 or newer (at your convenience).
+
+If you want variable substitution in the Lisp job code to be evaluated, wrap in double ~%~ signs.
+
+Example usage:
+
+#+begin_src yaml
+
+steps:
+  test-byggsteg-trigger-jointhefreeworld:
+    image: "jjba23/byggsteg-woodpecker:0.0.3"
+    when:
+      - event: [ "push" ]
+        branch: [ "trunk" ]
+    settings:
+      BYGGSTEG_USERNAME:
+        from_secret: "BYGGSTEG_USERNAME"
+      BYGGSTEG_KEY:
+        from_secret: "BYGGSTEG_KEY"      
+      BYGGSTEG_URL: "https://byggsteg.jointhefreeworld.org"
+      BYGGSTEG_JOB_CODE: |
+        (lambda()
+          `((project . "kracht")
+            (branch-name . "%%CI_COMMIT_BRANCH%%")
+            (task . "make-test")
+            (clone-url . "https://codeberg.org/jjba23/kracht")))      
+
+            
+
+#+end_src
