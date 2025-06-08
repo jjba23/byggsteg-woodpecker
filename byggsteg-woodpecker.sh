@@ -35,7 +35,7 @@ log_info() {
 }
 
 from_jq() {
-    JQ_FILE_CONTENT=$(cat "$2" | echo -E)
+    JQ_FILE_CONTENT=$(cat "$2")
     printf "%s" "$JQ_FILE_CONTENT" | jq "$1"
 }
 
