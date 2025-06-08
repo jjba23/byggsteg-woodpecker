@@ -36,7 +36,7 @@ log_info() {
 
 from_jq() {
     JQ_FILE_CONTENT=$(cat "$2")
-    printf "%s" "$JQ_FILE_CONTENT" | jq "$1"
+    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1"
 }
 
 poll_for_job_success() {
