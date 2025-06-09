@@ -1,3 +1,5 @@
+#!/usr/bin/env sh
+
 # byggsteg-woodpecker
 
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
@@ -15,8 +17,27 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-FROM alpine:3.22.0
-ADD byggsteg-woodpecker.sh /bin/
-RUN chmod +x /bin/byggsteg-woodpecker.sh
-RUN apk -Uuv add curl ca-certificates jq coreutils
-ENTRYPOINT /bin/byggsteg-woodpecker.sh
+
+set -euo;
+
+get_timestamp() {
+  date '+%Y-%m-%d %H:%M:%S%:z'
+}
+
+log_error() {
+  printf "\n[ERROR][%s] %s\n" "$(get_timestamp)" "$1" >&2
+}
+
+log_info() {
+  printf "\n[INFO][%s] %s\n" "$(get_timestamp)" "$1"
+}
+
+from_jq() {
+    JQ_FILE_CONTENT=$(cat "$2")
+    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1"
+}
+
+from_jq_base64() {
+    JQ_FILE_CONTENT=$(cat "$2")
+    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" | base64 --decode --ignore-garbage
+}

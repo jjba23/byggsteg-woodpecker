@@ -17,32 +17,7 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-set -euo;
-
-PLUGIN_POLL_LIMIT=${PLUGIN_POLL_LIMIT:-2048}
-PLUGIN_POLL_INTERVAL_SECONDS=${PLUGIN_POLL_INTERVAL_SECONDS:-16}
-
-get_timestamp() {
-  date '+%Y-%m-%d %H:%M:%S%:z'
-}
-
-log_error() {
-  printf "\n[ERROR][%s] %s\n" "$(get_timestamp)" "$1" >&2
-}
-
-log_info() {
-  printf "\n[INFO][%s] %s\n" "$(get_timestamp)" "$1"
-}
-
-from_jq() {
-    JQ_FILE_CONTENT=$(cat "$2")
-    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1"
-}
-
-from_jq_base64() {
-    JQ_FILE_CONTENT=$(cat "$2")
-    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" | base64 --decode
-}
+. "./prelude.sh "
 
 poll_for_job_success() {
     while [ "$POLL_COUNT" -lt "$PLUGIN_POLL_LIMIT" ]; do        
@@ -54,7 +29,7 @@ poll_for_job_success() {
         POLL_COUNT=$(( POLL_COUNT + 1 ))
 
         BYGGSTEG_JOB_SUCCEEDED=$(from_jq '.["success"]' "byggsteg-log-response.json")
-        BYGGSTEG_JOB_FAILURE=$(from_jq '.["failure"]' "byggsteg-log-response.json")
+        BYGGSTEG_JOB_FAILED=$(from_jq '.["failure"]' "byggsteg-log-response.json")
         BYGGSTEG_JOB_IN_PROGRESS=$(from_jq '.["in-progress"]' "byggsteg-log-response.json")
 
         if [ "$BYGGSTEG_JOB_SUCCEEDED" -eq 1 ]; then
@@ -63,7 +38,7 @@ poll_for_job_success() {
             exit 0
         fi
 
-        if [ "$BYGGSTEG_JOB_FAILURE" -eq 1 ]; then
+        if [ "$BYGGSTEG_JOB_FAILED" -eq 1 ]; then
             from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
             log_error "Byggsteg job failed!"
             exit 1
@@ -80,30 +55,7 @@ poll_for_job_success() {
 }
 
 main() {
-    BYGGSTEG_JOB_CODE="$PLUGIN_BYGGSTEG_JOB_CODE"
-
-    for PLACEHOLDER in $(echo "$PLUGIN_BYGGSTEG_JOB_CODE" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do
-        VAR_NAME=$(echo "$PLACEHOLDER" | sed 's/^%%//;s/%%$//')
-        VAR_VALUE=$(eval echo "\$$VAR_NAME")
-        BYGGSTEG_JOB_CODE=$(echo "$BYGGSTEG_JOB_CODE" | sed "s#$(echo "$PLACEHOLDER" | sed 's/%/\\%/g')#${VAR_VALUE}#g")
-    done
-
-    log_info "Sending byggsteg job code:"
-    echo "$BYGGSTEG_JOB_CODE"
-
-    log_info "POST call to $PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit"
-    curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
-      -X POST \
-      -H 'Content-Type: application/x-www-form-urlencoded' \
-      --data-urlencode "username=$PLUGIN_BYGGSTEG_USERNAME" \
-      --data-urlencode "password=$PLUGIN_BYGGSTEG_KEY" \
-      --data-urlencode "job-code=$BYGGSTEG_JOB_CODE" \
-          > byggsteg-submit-job-response.json
-    from_jq "." "byggsteg-submit-job-response.json"
-
-    BYGGSTEG_LOG_ID=$(from_jq '.["log-id"]' "byggsteg-submit-job-response.json")
-    log_info "Job created at Byggsteg successfully, log-id: $BYGGSTEG_LOG_ID"
-
+    BYGGSTEG_LOG_ID=$(cat byggsteg-log-id)
     BYGGSTEG_JOB_SUCCEEDED=0
     BYGGSTEG_JOB_FAILED=0
     BYGGSTEG_JOB_IN_PROGRESS=0
