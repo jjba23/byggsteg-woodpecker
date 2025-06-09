@@ -19,6 +19,13 @@
 
 . "prelude.sh"
 
+PLUGIN_POLL_LIMIT=${PLUGIN_POLL_LIMIT:-4096}
+POLL_COUNT=0
+BYGGSTEG_JOB_SUCCEEDED=0
+BYGGSTEG_JOB_FAILED=0
+BYGGSTEG_JOB_IN_PROGRESS=0
+
+
 poll_for_job_success() {
     while [ "$POLL_COUNT" -lt "$PLUGIN_POLL_LIMIT" ]; do        
         log_info "GET call to $PLUGIN_BYGGSTEG_URL/api/v1/logs/$BYGGSTEG_LOG_ID"      
@@ -56,10 +63,6 @@ poll_for_job_success() {
 
 main() {
     BYGGSTEG_LOG_ID=$(cat byggsteg-log-id)
-    BYGGSTEG_JOB_SUCCEEDED=0
-    BYGGSTEG_JOB_FAILED=0
-    BYGGSTEG_JOB_IN_PROGRESS=0
-    POLL_COUNT=0
     # start polling for job status until success or limit reached
     poll_for_job_success
 }

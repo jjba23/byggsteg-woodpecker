@@ -17,7 +17,6 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-
 set -euo;
 
 get_timestamp() {
