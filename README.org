@@ -3,7 +3,7 @@
 #+email: jjbigorra@gmail.com
 #+language: en
 
-[[https://jointhefreeworld.org/ggg/dist/license-agpl3+.svg]]    [[https://jointhefreeworld.org/ggg/dist/license-fdl13+.svg]]
+[[https://jointhefreeworld.org/ggg/dist/license-lgpl3+.svg]]    [[https://jointhefreeworld.org/ggg/dist/license-fdl13+.svg]]
 
 Integrate Byggsteg pipelines easily into your Woodpecker CI setup (for example at Codeberg).
 
