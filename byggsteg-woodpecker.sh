@@ -39,6 +39,11 @@ from_jq() {
     printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1"
 }
 
+from_jq_base64() {
+    JQ_FILE_CONTENT=$(cat "$2")
+    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" | base64 --decode
+}
+
 poll_for_job_success() {
     while [ "$POLL_COUNT" -lt "$PLUGIN_POLL_LIMIT" ]; do        
         log_info "GET call to $PLUGIN_BYGGSTEG_URL/api/v1/logs/$BYGGSTEG_LOG_ID"      
@@ -53,13 +58,13 @@ poll_for_job_success() {
         BYGGSTEG_JOB_IN_PROGRESS=$(from_jq '.["in-progress"]' "byggsteg-log-response.json")
 
         if [ "$BYGGSTEG_JOB_SUCCEEDED" -eq 1 ]; then
-            from_jq '.["log-data"]' "byggsteg-log-response.json"
+            from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
             log_info "Byggsteg job completed successfully!"
             exit 0
         fi
 
         if [ "$BYGGSTEG_JOB_FAILURE" -eq 1 ]; then
-            from_jq '.["log-data"]' "byggsteg-log-response.json"
+            from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
             log_error "Byggsteg job failed!"
             exit 1
         fi      

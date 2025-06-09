@@ -18,5 +18,5 @@
 FROM alpine:3.22.0
 ADD byggsteg-woodpecker.sh /bin/
 RUN chmod +x /bin/byggsteg-woodpecker.sh
-RUN apk -Uuv add curl ca-certificates jq
+RUN apk -Uuv add curl ca-certificates jq coreutils
 ENTRYPOINT /bin/byggsteg-woodpecker.sh
