@@ -1,18 +1,80 @@
-#+title: Byggsteg Woodpecker plugin
+#+title: Byggsteg Woodpecker Plugins
+#+author: Josep Bigorra
+#+email: jjbigorra@gmail.com
+#+language: en
+
+[[https://jointhefreeworld.org/ggg/dist/license-agpl3+.svg]]    [[https://jointhefreeworld.org/ggg/dist/license-fdl13+.svg]]
 
 Integrate Byggsteg pipelines easily into your Woodpecker CI setup (for example at Codeberg).
 
-Licensed under the Lesser GNU General Public License v3 or newer (at your convenience).
+* What's here
 
-If you want variable substitution in the Lisp job code to be evaluated, wrap in double ~%~ signs.
+In this repository the following container images and respective sources are provided:
 
-Example usage:
+- jjba23/byggsteg-woodpecker-submit-job :: pipeline step used to submit a pipeline to your instance of Byggsteg with a retry mechanism
+- jjba23/byggsteg-woodpecker-poll-job   :: pipeline step used to poll for status of your Byggsteg job
+
+Find published images at DockerHub:
+
+https://hub.docker.com/repositories/jjba23
+
+The pipeline steps here act as a bridge, allowing the Woodpecker CI system to leverage Byggsteg for its powerful Lisp-based CI/CD orchestration, especially when working with source code hosted on platforms like Codeberg.
+
+The pipeline steps are written in shell script, and use Alpine Linux images achieving a great performance, simplicity and minimalism.
+
+----------------------
+
+* byggsteg-woodpecker-submit-job
+
+byggsteg-woodpecker-submit-job is the trigger mechanism. It allows a Woodpecker pipeline, after detecting a change in a Codeberg repository, to tell Byggsteg, "Hey, here's a new job for you to run, based on this project and branch". This script's primary function is to initiate a new CI/CD job on the Byggsteg orchestrator.
+
+It starts by taking a Byggsteg job definition (lambda thunk), written in Lisp (Scheme) via the ~BYGGSTEG_JOB_CODE~ setting.
+    
+It then will replace placeholders by the environment variables in a Woodpecker CI pipeline (e.g., ~%%CI_REPO_NAME%%~) . This allows the Byggsteg job to be dynamically configured based on information from the CI environment (like the current project name, branch, etc., often derived from a Codeberg repository). 
+    
+It authenticates with the Byggsteg instance using provided username (~BYGGSTEG_USERNAME~) and password/key (~BYGGSTEG_KEY~).
+    
+It constructs a POST request to Byggsteg's ~/api/v1/jobs/manage/submit~ endpoint, sending the authenticated and dynamically generated Lisp job code, with a configurable retry mechanism.
+    
+Upon successful submission, Byggsteg responds with a unique log-id for the newly created job, which is captured by this script, then saved to a local file named ~byggsteg-log-id~. This file acts as a direct communication channel for the subsequent poll-job script.
+
+* byggsteg-woodpecker-poll-job
+
+byggsteg-woodpecker-poll-job is the monitoring and feedback mechanism. It ensures that the Woodpecker pipeline doesn't just blindly trigger a job but actively waits for and reports on its completion and outcome, allowing the Woodpecker build status to accurately reflect the Byggsteg job's success or failure. This script's primary function is to monitor the execution status of a Byggsteg job that was previously submitted.
+
+It starts by reading the log-id from the ~byggsteg-log-id~ file, which was created by the byggsteg-woodpecker-submit-job script.
+
+It then enters a loop, periodically making GET requests to Byggsteg's ~/api/v1/logs/$BYGGSTEG_LOG_ID~ endpoint. This allows it to query the real-time status of the job.
+
+From Byggsteg's JSON response, it extracts success, failure, and in-progress flags, and then it decodes and prints the log-data (the actual output/logs from the Byggsteg job) to the console, ensuring that the Byggsteg job's execution details are visible within the Woodpecker build logs.
+
+If Byggsteg reports success: 1, the script exits with 0 (success), indicating to Woodpecker that the Byggsteg-orchestrated task completed successfully.
+If Byggsteg reports failure: 1, the script exits with 1 (failure), causing the Woodpecker build to fail.
+Else if the job is still in-progress, it waits for a defined interval (~_POLL_INTERVAL_SECONDS~) and polls again, up to a maximum limit (~POLL_LIMIT~).
+
+If the polling limit is reached and the job has not completed, the script exits with 1, indicating a timeout failure.
+
+* Seamless Integration with Woodpecker and Codeberg to Byggsteg
+
+Together, these steps create a robust and seamless workflow:
+
+In essence, these scripts allow Woodpecker to delegate complex, Lisp-defined CI/CD tasks to Byggsteg, while maintaining full visibility and control over the overall pipeline status, all triggered by changes in your Codeberg repositories. This creates a powerful, flexible, and integrated CI/CD ecosystem.
+
+-------------------------
+
+* Example usage
+
+See here an example that I use for Codeberg:
 
 #+begin_src yaml
-
+variables:
+  - &byggsteg_url 'https://byggsteg.jointhefreeworld.org'
+  - &byggsteg_submit_job_image 'jjba23/byggsteg-woodpecker-submit-job:v0.1.3'
+  - &byggsteg_poll_job_image 'jjba23/byggsteg-woodpecker-poll-job:v0.1.3'
+  
 steps:
-  test-byggsteg-trigger-jointhefreeworld:
-    image: "jjba23/byggsteg-woodpecker:0.0.3"
+  submit-byggsteg-job-jointhefreeworld:
+    image: *byggsteg_submit_job_image
     when:
       - event: [ "push" ]
         branch: [ "trunk" ]
@@ -21,18 +83,49 @@ steps:
         from_secret: "BYGGSTEG_USERNAME"
       BYGGSTEG_KEY:
         from_secret: "BYGGSTEG_KEY"      
-      BYGGSTEG_URL: "https://byggsteg.jointhefreeworld.org"
+      BYGGSTEG_URL: *byggsteg_url
       BYGGSTEG_JOB_CODE: |
         (lambda()
-          `((project . "kracht")
-            (branch-name . "%%CI_COMMIT_BRANCH%%")
-            (task . "make-test")
-            (clone-url . "https://codeberg.org/jjba23/kracht")))      
-
+          `((task . ("make-test" "pull-and-deploy"))
+            (project . "%%CI_REPO_NAME%%")
+            (branch-name . "%%CI_COMMIT_BRANCH%%")            
+            (clone-url . "%%CI_REPO_CLONE_URL%%")))
             
+  poll-byggsteg-job-jointhefreeworld:
+    image: *byggsteg_poll_job_image
+    when:
+      - event: [ "push" ]
+        branch: [ "trunk" ]
+    settings:
+      BYGGSTEG_USERNAME:
+        from_secret: "BYGGSTEG_USERNAME"
+      BYGGSTEG_KEY:
+        from_secret: "BYGGSTEG_KEY"      
+      BYGGSTEG_URL: *byggsteg_url
 
 #+end_src
 
-Find published images of ~jjba23/byggsteg-woodpecker~ at DockerHub:
 
-https://hub.docker.com/repository/docker/jjba23/byggsteg-woodpecker/tags
+--------------
+
+* Licensing
+
+byggsteg-woodpecker and all of its source code are free software, licensed under the Lesser GNU General Public License v3 (or newer at your convenience).
+
+https://www.gnu.org/licenses/lgpl-3.0.html
+
+The documentation and examples, including this document, which are provided with byggsteg-woodpecker, are all licensed under the GNU Free Documentation License v1.3 (or newer at your convenience).
+
+https://www.gnu.org/licenses/fdl-1.3.html
+
+---------
+
+* Code of conduct
+
+This project adheres to the jointhefreeworld code of conduct. Find it here:
+
+https://jointhefreeworld.org/blog/articles/personal/jointhefreeworld-code-of-conduct/index.html
+
+In summary, we foster an inclusive, respectful, and cooperative environment for all contributors and users of this free software project. Inspired by the ideals of the GNU Project, we strive to uphold freedom, equality, and community as guiding principles. We believe that collaboration in a community of mutual respect is essential to creating excellent free software.
+
+---------
