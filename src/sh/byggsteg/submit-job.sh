@@ -17,7 +17,7 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-. "./prelude.sh "
+. "prelude.sh"
 
 main() {
     BYGGSTEG_JOB_CODE="$PLUGIN_BYGGSTEG_JOB_CODE"
