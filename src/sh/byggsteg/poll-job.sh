@@ -52,10 +52,9 @@ poll_for_job_success() {
             exit 1
         fi      
 
-        if [ "$BYGGSTEG_JOB_IN_PROGRESS" -eq 1 ]; then
-            log_info "Byggsteg job in progress... will poll again for status in $PLUGIN_POLL_INTERVAL_SECONDS seconds"
-            sleep "$PLUGIN_POLL_INTERVAL_SECONDS"
-        fi
+        log_info "Byggsteg job in progress..."
+        log_info "Polling in $PLUGIN_POLL_INTERVAL_SECONDS seconds"
+        sleep "$PLUGIN_POLL_INTERVAL_SECONDS"
     done
 
     log_error "Reached limit of poll attempts ($POLL_LIMIT), pipeline failed"
