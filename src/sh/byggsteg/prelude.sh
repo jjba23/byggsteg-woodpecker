@@ -49,16 +49,16 @@ retry_command() {
     ATTEMPT_COUNT=0
     while [ "$ATTEMPT_COUNT" -lt "$ATTEMPTS_LIMIT" ]; do
         ATTEMPT_COUNT=$((ATTEMPT_COUNT + 1))
-        echo "Attempt $ATTEMPT of $ATTEMPTS_LIMIT: Executing '$COMMAND_TO_RETRY'"
+        log_info "Attempt $ATTEMPT_COUNT of $ATTEMPTS_LIMIT: Executing '$COMMAND_TO_RETRY'"
         if eval "$COMMAND_TO_RETRY"; then
-            echo "Command succeeded on attempt $ATTEMPT_COUNT."
+            log_info "Command succeeded on attempt $ATTEMPT_COUNT."
             return 0
         else
-            echo "Command failed, retrying in $ATTEMPTS_INTERVAL_SECONDS seconds..."
+            log_error "Command failed, retrying in $ATTEMPTS_INTERVAL_SECONDS seconds..."
             sleep "$ATTEMPTS_INTERVAL_SECONDS"
         fi
     done
 
-    echo "Command failed after $ATTEMPTS_LIMIT attempts."
+    log_error "Command failed after $ATTEMPTS_LIMIT attempts."
     return 1
 }
