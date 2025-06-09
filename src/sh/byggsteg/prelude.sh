@@ -34,10 +34,10 @@ log_info() {
 
 from_jq() {
     JQ_FILE_CONTENT=$(cat "$2")
-    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1"
+    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" || true
 }
 
 from_jq_base64() {
     JQ_FILE_CONTENT=$(cat "$2")
-    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" | base64 --decode --ignore-garbage
+    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" | base64 --decode --ignore-garbage || true
 }
