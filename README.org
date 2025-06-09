@@ -7,6 +7,10 @@
 
 Integrate Byggsteg pipelines easily into your Woodpecker CI setup (for example at Codeberg).
 
+Find Byggsteg here: https://codeberg.org/jjba23/byggsteg
+
+Find Woodpecker here: https://woodpecker-ci.org/
+
 * What's here
 
 In this repository the following container images and respective sources are provided:
