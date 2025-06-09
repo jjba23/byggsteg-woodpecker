@@ -1,11 +1,11 @@
 
 define container-build
 	podman build -f $(2) \
-		-t "$(shell printf "%s:%s" $(1) $(CONTAINER_TAG))" .
+		-t "$(shell printf "%s:%s" $(1) $(shell git describe --exact-match --tags))" .
 endef
 
 define container-push
-	podman push "$(1):$(CONTAINER_TAG)"
+	podman push "$(shell printf "%s:%s" $(1) $(shell git describe --exact-match --tags))"
 endef
 
 build-poll-job:
@@ -19,3 +19,9 @@ build-submit-job:
 
 push-submit-job:
 	$(call container-push,"jjba23/byggsteg-woodpecker-submit-job")
+
+all:
+	make build-poll-job
+	make push-poll-job
+	make build-submit-job
+	make push-submit-job
