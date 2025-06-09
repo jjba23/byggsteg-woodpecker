@@ -40,3 +40,25 @@ from_jq_base64() {
     JQ_FILE_CONTENT=$(cat "$2")
     printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" | base64 --decode --ignore-garbage || true
 }
+
+retry_command() {
+    ATTEMPTS_LIMIT=${ATTEMPTS_LIMIT:-8}
+    ATTEMPTS_INTERVAL_SECONDS=${ATTEMPTS_INTERVAL_SECONDS:-4}
+    COMMAND_TO_RETRY="$@"
+
+    ATTEMPT_COUNT=0
+    while [ "$ATTEMPT_COUNT" -lt "$ATTEMPTS_LIMIT" ]; do
+        ATTEMPT_COUNT=$((ATTEMPT_COUNT + 1))
+        echo "Attempt $ATTEMPT of $ATTEMPTS_LIMIT: Executing '$COMMAND_TO_RETRY'"
+        if eval "$COMMAND_TO_RETRY"; then
+            echo "Command succeeded on attempt $ATTEMPT_COUNT."
+            return 0
+        else
+            echo "Command failed, retrying in $ATTEMPTS_INTERVAL_SECONDS seconds..."
+            sleep "$ATTEMPTS_INTERVAL_SECONDS"
+        fi
+    done
+
+    echo "Command failed after $ATTEMPTS_LIMIT attempts."
+    return 1
+}

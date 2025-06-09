@@ -19,6 +19,16 @@
 
 . "prelude.sh"
 
+submit_job_to_byggsteg() {
+    curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
+      -X POST \
+      -H 'Content-Type: application/x-www-form-urlencoded' \
+      --data-urlencode "username=$PLUGIN_BYGGSTEG_USERNAME" \
+      --data-urlencode "password=$PLUGIN_BYGGSTEG_KEY" \
+      --data-urlencode "job-code=$BYGGSTEG_JOB_CODE" \
+          > byggsteg-submit-job-response.json
+}
+
 main() {
     BYGGSTEG_JOB_CODE="$PLUGIN_BYGGSTEG_JOB_CODE"
 
@@ -32,13 +42,8 @@ main() {
     echo "$BYGGSTEG_JOB_CODE"
 
     log_info "POST call to $PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit"
-    curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
-      -X POST \
-      -H 'Content-Type: application/x-www-form-urlencoded' \
-      --data-urlencode "username=$PLUGIN_BYGGSTEG_USERNAME" \
-      --data-urlencode "password=$PLUGIN_BYGGSTEG_KEY" \
-      --data-urlencode "job-code=$BYGGSTEG_JOB_CODE" \
-          > byggsteg-submit-job-response.json
+    
+    retry_command submit_job_to_byggsteg
     from_jq "." "byggsteg-submit-job-response.json"
 
     BYGGSTEG_LOG_ID=$(from_jq '.["log-id"]' "byggsteg-submit-job-response.json")
