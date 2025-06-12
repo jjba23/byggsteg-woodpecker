@@ -20,7 +20,7 @@
 . "prelude.sh"
 
 submit_job_to_byggsteg() {
-    BYGGSTEG_TOKEN=$(cat x-bewaking-byggsteg)
+    echo -e "x-bewaking-byggsteg: $BYGGSTEG_TOKEN"
     curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
       -X POST \
       -H 'content-type: application/x-www-form-urlencoded' \
@@ -30,6 +30,7 @@ submit_job_to_byggsteg() {
 }
 
 main() {
+    BYGGSTEG_TOKEN=$(cat x-bewaking-byggsteg)
     BYGGSTEG_JOB_CODE="$PLUGIN_BYGGSTEG_JOB_CODE"
 
     for PLACEHOLDER in $(echo "$PLUGIN_BYGGSTEG_JOB_CODE" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do

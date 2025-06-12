@@ -25,8 +25,7 @@ get_token_byggsteg() {
       -H 'Content-Type: application/x-www-form-urlencoded' \
       --data-urlencode "username=$PLUGIN_BYGGSTEG_EMAIL" \
       --data-urlencode "password=$PLUGIN_BYGGSTEG_PASSWORD" \
-          | grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 \
-          > x-bewaking-byggsteg
+          | grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 > x-bewaking-byggsteg
 }
 
 main() {
