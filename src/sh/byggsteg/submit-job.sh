@@ -20,11 +20,11 @@
 . "prelude.sh"
 
 submit_job_to_byggsteg() {
+    BYGGSTEG_TOKEN=$(cat x-bewaking-byggsteg)
     curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
       -X POST \
-      -H 'Content-Type: application/x-www-form-urlencoded' \
-      --data-urlencode "username=$PLUGIN_BYGGSTEG_USERNAME" \
-      --data-urlencode "password=$PLUGIN_BYGGSTEG_KEY" \
+      -H 'content-type: application/x-www-form-urlencoded' \
+      -H "x-bewaking-byggsteg: $BYGGSTEG_TOKEN" \
       --data-urlencode "job-code=$BYGGSTEG_JOB_CODE" \
           > byggsteg-submit-job-response.json
 }

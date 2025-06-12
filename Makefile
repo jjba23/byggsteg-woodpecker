@@ -36,8 +36,16 @@ build-submit-job:
 push-submit-job:
 	$(call container-push,"jjba23/byggsteg-woodpecker-submit-job")
 
+build-get-token:
+	$(call container-build,"jjba23/byggsteg-woodpecker-get-token", "get-token.containerfile")
+
+push-get-token:
+	$(call container-push,"jjba23/byggsteg-woodpecker-get-token")
+
 all:
 	make build-poll-job
 	make push-poll-job
 	make build-submit-job
 	make push-submit-job
+	make build-get-token
+	make push-get-token
