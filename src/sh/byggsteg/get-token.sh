@@ -23,7 +23,7 @@ get_token_byggsteg() {
     curl -s -i "$PLUGIN_BYGGSTEG_URL/api/v1/login" \
       -X POST \
       -H 'Content-Type: application/x-www-form-urlencoded' \
-      --data-urlencode "username=$PLUGIN_BYGGSTEG_EMAIL" \
+      --data-urlencode "email=$PLUGIN_BYGGSTEG_EMAIL" \
       --data-urlencode "password=$PLUGIN_BYGGSTEG_PASSWORD" \
           | grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 > x-bewaking-byggsteg
 }
