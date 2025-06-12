@@ -30,12 +30,12 @@ get_token_byggsteg() {
 }
 
 main() {
-
     log_info "Obtaining Byggsteg token..."
     log_info "POST call to $PLUGIN_BYGGSTEG_URL/api/v1/login"
     
     retry_command get_token_byggsteg
 
+    test -s "x-bewaking-byggsteg" && exit
     log_info "Byggsteg token fetched successfully"
 }
 
