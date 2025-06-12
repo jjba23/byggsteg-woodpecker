@@ -20,7 +20,6 @@
 . "prelude.sh"
 
 submit_job_to_byggsteg() {
-    echo "x-bewaking-byggsteg: $BYGGSTEG_TOKEN"
     curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
       -X POST \
       -H 'content-type: application/x-www-form-urlencoded' \
