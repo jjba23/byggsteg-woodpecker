@@ -23,42 +23,47 @@ get_timestamp() {
   date '+%Y-%m-%d %H:%M:%S%:z'
 }
 
+fg_red="$(tput setf 4)"
+fg_bold="$(tput bold)"
+fg_reset="$(tput sgr0)"
+
 log_error() {
-  printf "\n[ERROR][%s] %s\n" "$(get_timestamp)" "$1" >&2
+  tput     
+  printf "\n${fg_red}[ERROR][%s] %s${fg_reset}\n" "$(get_timestamp)" "$1" >&2
 }
 
 log_info() {
-  printf "\n[INFO][%s] %s\n" "$(get_timestamp)" "$1"
+  printf "\n${fg_bold}[INFO][%s] %s${fg_reset}\n" "$(get_timestamp)" "$1"
 }
 
 from_jq() {
-    JQ_FILE_CONTENT=$(cat "$2")
-    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" || true
+    jq_content=$(cat "$2")
+    printf "%s" "$jq_content" | jq -r "$1" || true
 }
 
 from_jq_base64() {
-    JQ_FILE_CONTENT=$(cat "$2")
-    printf "%s" "$JQ_FILE_CONTENT" | jq -r "$1" | base64 --decode --ignore-garbage || true
+    jq_content=$(cat "$2")
+    printf "%s" "$jq_content" | jq -r "$1" | base64 --decode --ignore-garbage || true
 }
 
 retry_command() {
-    ATTEMPTS_LIMIT=${ATTEMPTS_LIMIT:-8}
-    ATTEMPTS_INTERVAL_SECONDS=${ATTEMPTS_INTERVAL_SECONDS:-4}
-    COMMAND_TO_RETRY="$@"
+    attempts_limit=${ATTEMPTS_LIMIT:-8}
+    attempts_interval_seconds=${ATTEMPTS_INTERVAL_SECONDS:-4}
+    command_to_retry="$@"
 
-    ATTEMPT_COUNT=0
-    while [ "$ATTEMPT_COUNT" -lt "$ATTEMPTS_LIMIT" ]; do
-        ATTEMPT_COUNT=$((ATTEMPT_COUNT + 1))
-        log_info "Attempt $ATTEMPT_COUNT of $ATTEMPTS_LIMIT: Executing '$COMMAND_TO_RETRY'"
-        if eval "$COMMAND_TO_RETRY"; then
-            log_info "Command succeeded on attempt $ATTEMPT_COUNT."
+    attempt_count=0
+    while [ "$attempt_count" -lt "$attempts_limit" ]; do
+        attempt_count=$((attempt_count + 1))
+        log_info "Attempt $attempt_count of $attempts_limit: Executing '$command_to_retry'"
+        if eval "$command_to_retry"; then
+            log_info "Command succeeded on attempt $attempt_count."
             return 0
         else
-            log_error "Command failed, retrying in $ATTEMPTS_INTERVAL_SECONDS seconds..."
-            sleep "$ATTEMPTS_INTERVAL_SECONDS"
+            log_error "Command failed, retrying in $attempts_interval_seconds seconds..."
+            sleep "$attempts_interval_seconds"
         fi
     done
 
-    log_error "Command failed after $ATTEMPTS_LIMIT attempts."
+    log_error "Command failed after $attempts_limit attempts."
     return 1
 }

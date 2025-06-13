@@ -24,8 +24,8 @@ submit_job_to_byggsteg() {
       --fail -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
       -X POST \
       -H 'content-type: application/x-www-form-urlencoded' \
-      -H "x-bewaking-byggsteg: $BYGGSTEG_TOKEN" \
-      --data-urlencode "job-code=$BYGGSTEG_JOB_CODE" \
+      -H "x-bewaking-byggsteg: $byggsteg_token" \
+      --data-urlencode "job-code=$byggsteg_job_code" \
           > byggsteg-submit-job-response.json
 }
 
@@ -33,27 +33,28 @@ submit_job_to_byggsteg() {
 #
 #    file-inputs:  x-bewaking-token (the Byggsteg auth token to be used)
 #    file-outputs: byggsteg-log-id (the job's log UUID we will poll for status)
+#                  byggsteg-submit-job-response.json (the response body of submitting a job)
 main() {
-    BYGGSTEG_TOKEN=$(cat x-bewaking-byggsteg)
-    BYGGSTEG_JOB_CODE="$PLUGIN_BYGGSTEG_JOB_CODE"
+    byggsteg_token=$(cat x-bewaking-byggsteg)
+    byggsteg_job_code="$PLUGIN_BYGGSTEG_JOB_CODE"
 
-    for PLACEHOLDER in $(echo "$PLUGIN_BYGGSTEG_JOB_CODE" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do
-        VAR_NAME=$(echo "$PLACEHOLDER" | sed 's/^%%//;s/%%$//')
-        VAR_VALUE=$(eval echo "\$$VAR_NAME")
-        BYGGSTEG_JOB_CODE=$(echo "$BYGGSTEG_JOB_CODE" | sed "s#$(echo "$PLACEHOLDER" | sed 's/%/\\%/g')#${VAR_VALUE}#g")
+    for var_placeholder in $(echo "$PLUGIN_BYGGSTEG_JOB_CODE" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do
+        var_name=$(echo "$var_placeholder" | sed 's/^%%//;s/%%$//')
+        var_value=$(eval echo "\$$var_name")
+        byggsteg_job_code=$(echo "$byggsteg_job_code" | sed "s#$(echo "$var_placeholder" | sed 's/%/\\%/g')#${var_value}#g")
     done
 
     log_info "Sending byggsteg job code:"
-    echo "$BYGGSTEG_JOB_CODE"
+    echo "$byggsteg_job_code"
 
     log_info "POST call to $PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit"
     
     retry_command submit_job_to_byggsteg
     from_jq "." "byggsteg-submit-job-response.json"
 
-    BYGGSTEG_LOG_ID=$(from_jq '.["log-id"]' "byggsteg-submit-job-response.json")
-    log_info "Job created at Byggsteg successfully, log-id: $BYGGSTEG_LOG_ID"
-    echo "$BYGGSTEG_LOG_ID" > byggsteg-log-id
+    byggsteg_log_id=$(from_jq '.["log-id"]' "byggsteg-submit-job-response.json")
+    log_info "Job created at Byggsteg successfully, log-id: $byggsteg_log_id"
+    echo "$byggsteg_log_id" > byggsteg-log-id
 }
 
 # Run the main function
