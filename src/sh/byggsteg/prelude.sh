@@ -47,8 +47,8 @@ from_jq_base64() {
 }
 
 retry_command() {
-    attempts_limit=${ATTEMPTS_LIMIT:-8}
-    attempts_interval_seconds=${ATTEMPTS_INTERVAL_SECONDS:-4}
+    attempts_limit=${attempts_limit:-8}
+    attempts_interval_seconds=${attempts_interval_seconds:-4}
     command_to_retry="$@"
 
     attempt_count=0
