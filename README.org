@@ -29,6 +29,10 @@ The pipeline steps are written in shell script, and use Alpine Linux images achi
 
 ----------------------
 
+* byggsteg-woodpecker-get-token
+
+byggsteg-woodpecker-get-token is the start point of any operation that involves using Byggsteg, since we need to authenticate ourselves and get a "bewaking token". In this step, we use ~BYGGSTEG_EMAIL~ and ~BYGGSTEG_PASSWORD~ to call ~/api/v1/login~ at Byggsteg and receive a ~x-bewaking-token~ in the response header. Upon succesfully receiving this token and checking its validity we persist it to a file also called ~x-bewaking-token~ which ensures we can reuse the token in future pipeline steps.
+
 * byggsteg-woodpecker-submit-job
 
 byggsteg-woodpecker-submit-job is the trigger mechanism. It allows a Woodpecker pipeline, after detecting a change in a Codeberg repository, to tell Byggsteg, "Hey, here's a new job for you to run, based on this project and branch". This script's primary function is to initiate a new CI/CD job on the Byggsteg orchestrator.
@@ -59,6 +63,8 @@ Else if the job is still in-progress, it waits for a defined interval (~_POLL_IN
 
 If the polling limit is reached and the job has not completed, the script exits with 1, indicating a timeout failure.
 
+----------------------------
+
 * Seamless Integration with Woodpecker and Codeberg to Byggsteg
 
 Together, these steps create a robust and seamless workflow:
@@ -66,6 +72,70 @@ Together, these steps create a robust and seamless workflow:
 In essence, these scripts allow Woodpecker to delegate complex, Lisp-defined CI/CD tasks to Byggsteg, while maintaining full visibility and control over the overall pipeline status, all triggered by changes in your Codeberg repositories. This creates a powerful, flexible, and integrated CI/CD ecosystem.
 
 -------------------------
+
+#+begin_src mermaid
+graph TD
+    subgraph Token Generation (generate-token)
+        A[get-owner-details] --> B(Payload Creation)
+        B --> C{token-payload-valid?}
+        C -- Yes --> D[Payload String Conversion]
+        D --> E[Base64 Encode Payload]
+        E --> F[Encrypt Payload (encryption-key)]
+        F --> G[string-garble (inner token)]
+        G --> H[Encrypt Garbled Token (signing-key)]
+        H --> I[base16-encode]
+        I --> J(Generated Token)
+        C -- No --> K(Error: Invalid Payload)
+        F -- Error --> L(Error: Encryption Failed)
+        H -- Error --> M(Error: Signing Failed)
+    end
+
+    subgraph Token Decryption (decrypt-token)
+        N[Input Token] --> O[base16-decode]
+        O --> P[string-ungarble]
+        P --> Q[Decrypt Signed Payload (signing-key)]
+        Q --> R[string-ungarble]
+        R --> S[Decrypt Payload (encryption-key)]
+        S --> T{Decryption Successful?}
+        T -- Yes --> U[Base64 Decode Payload]
+        U --> V[Parse Payload String]
+        V --> W{Token Validity & Expiration Check}
+        W -- Valid --> X(Decrypted Payload)
+        W -- Expired/Invalid --> Y(Error: Invalid/Expired Token)
+        T -- No --> Z(Error: Decryption Failed)
+    end
+
+    subgraph Utility Functions
+        AA[syscall]
+        BB[string-garble]
+        CC[string-ungarble]
+        DD[encrypt-payload]
+        EE[decrypt-payload]
+        FF[base16-encode]
+        GG[base16-decode]
+        HH[token-payload-valid?]
+        II[has-needed-permissions?]
+        JJ[is-token-expired?]
+    end
+
+    J --> N
+    F --> DD
+    S --> EE
+    E --> DD
+    H --> DD
+    P --> CC
+    R --> CC
+    O --> GG
+    I --> FF
+    Q --> EE
+
+    classDef default fill:#DDEBF7,stroke:#333,stroke-width:2px;
+    classDef error fill:#F7DDEB,stroke:#F00,stroke-width:2px;
+
+    class K,L,M,Y,Z error;   
+#+end_src
+
+---------------
 
 * Example usage
 
@@ -110,11 +180,7 @@ steps:
     when:
       - event: [ "push" ]
         branch: [ "trunk" ]
-    settings:
-      BYGGSTEG_USERNAME:
-        from_secret: "BYGGSTEG_USERNAME"
-      BYGGSTEG_KEY:
-        from_secret: "BYGGSTEG_KEY"      
+    settings:     
       BYGGSTEG_URL: *byggsteg_url
 
 #+end_src
