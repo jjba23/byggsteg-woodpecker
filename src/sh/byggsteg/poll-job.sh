@@ -24,13 +24,12 @@ PLUGIN_POLL_INTERVAL_SECONDS=${PLUGIN_POLL_INTERVAL_SECONDS:-12}
 POLL_COUNT=0
 BYGGSTEG_JOB_SUCCEEDED=0
 BYGGSTEG_JOB_FAILED=0
-BYGGSTEG_JOB_IN_PROGRESS=0
-
 
 poll_for_job_success() {
     while [ "$POLL_COUNT" -lt "$PLUGIN_POLL_LIMIT" ]; do        
         log_info "GET call to $PLUGIN_BYGGSTEG_URL/api/v1/logs/$BYGGSTEG_LOG_ID"      
-        curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/logs/$BYGGSTEG_LOG_ID" \
+        curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
+            --fail -s "$PLUGIN_BYGGSTEG_URL/api/v1/logs/$BYGGSTEG_LOG_ID" \
             > byggsteg-log-response.json
         from_jq "." "byggsteg-log-response.json"
 
@@ -38,7 +37,6 @@ poll_for_job_success() {
 
         BYGGSTEG_JOB_SUCCEEDED=$(from_jq '.["success"]' "byggsteg-log-response.json")
         BYGGSTEG_JOB_FAILED=$(from_jq '.["failure"]' "byggsteg-log-response.json")
-        BYGGSTEG_JOB_IN_PROGRESS=$(from_jq '.["in-progress"]' "byggsteg-log-response.json")
 
         if [ "$BYGGSTEG_JOB_SUCCEEDED" -eq 1 ]; then
             from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
@@ -61,6 +59,9 @@ poll_for_job_success() {
     exit 1          
 }
 
+# main -- entrypoint function
+#
+#   file-inputs: byggsteg-log-id (the log UUID we will poll for status)
 main() {
     BYGGSTEG_LOG_ID=$(cat byggsteg-log-id)
     # start polling for job status until success or limit reached

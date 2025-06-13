@@ -20,7 +20,8 @@
 . "prelude.sh"
 
 submit_job_to_byggsteg() {
-    curl -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
+    curl --user-agent "jjba23/byggsteg-woodpecker-submit-job" \
+      --fail -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
       -X POST \
       -H 'content-type: application/x-www-form-urlencoded' \
       -H "x-bewaking-byggsteg: $BYGGSTEG_TOKEN" \
@@ -28,6 +29,10 @@ submit_job_to_byggsteg() {
           > byggsteg-submit-job-response.json
 }
 
+# main -- entrypoint function
+#
+#    file-inputs:  x-bewaking-token (the Byggsteg auth token to be used)
+#    file-outputs: byggsteg-log-id (the job's log UUID we will poll for status)
 main() {
     BYGGSTEG_TOKEN=$(cat x-bewaking-byggsteg)
     BYGGSTEG_JOB_CODE="$PLUGIN_BYGGSTEG_JOB_CODE"

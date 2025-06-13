@@ -20,14 +20,19 @@
 . "prelude.sh"
 
 get_token_byggsteg() {
-    curl -s -i "$PLUGIN_BYGGSTEG_URL/api/v1/login" \
+    curl --user-agent "jjba23/byggsteg-woodpecker-get-token" \
+      --fail -s -i "$PLUGIN_BYGGSTEG_URL/api/v1/login" \
       -X POST \
-      -H 'Content-Type: application/x-www-form-urlencoded' \
+      -H 'content-type: application/x-www-form-urlencoded' \
       --data-urlencode "email=$PLUGIN_BYGGSTEG_EMAIL" \
       --data-urlencode "password=$PLUGIN_BYGGSTEG_PASSWORD" \
-          | grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 > x-bewaking-byggsteg
+      | grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 \
+      > x-bewaking-byggsteg
 }
 
+# main -- entrypoint function
+#
+#   file-outputs: x-bewaking-token (the Byggsteg auth token to be used)
 main() {
     log_info "Obtaining Byggsteg token..."
     log_info "POST call to $PLUGIN_BYGGSTEG_URL/api/v1/login"
