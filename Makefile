@@ -42,7 +42,7 @@ build-get-token:
 push-get-token:
 	$(call container-push,"jjba23/byggsteg-woodpecker-get-token")
 
-all:
+container-push:
 	make build-poll-job
 	make push-poll-job
 	make build-submit-job
