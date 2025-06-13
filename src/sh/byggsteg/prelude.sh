@@ -23,9 +23,9 @@ get_timestamp() {
   date '+%Y-%m-%d %H:%M:%S%:z'
 }
 
-fg_red="$(tput setf 4)"
-fg_bold="$(tput bold)"
-fg_reset="$(tput sgr0)"
+fg_red="$(tput -T xterm setf 4)"
+fg_bold="$(tput -T xterm bold)"
+fg_reset="$(tput -T xterm sgr0)"
 
 log_error() {
   tput     
