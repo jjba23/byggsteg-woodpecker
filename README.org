@@ -75,14 +75,14 @@ In essence, these scripts allow Woodpecker to delegate complex, Lisp-defined CI/
 
 #+begin_src mermaid
 graph TD
-    subgraph Token Generation (generate-token)
+    subgraph "Token Generation (generate-token)"
         A[get-owner-details] --> B(Payload Creation)
         B --> C{token-payload-valid?}
         C -- Yes --> D[Payload String Conversion]
         D --> E[Base64 Encode Payload]
-        E --> F[Encrypt Payload (encryption-key)]
-        F --> G[string-garble (inner token)]
-        G --> H[Encrypt Garbled Token (signing-key)]
+        E --> F[Encrypt Payload encryption-key]
+        F --> G[string-garble inner token]
+        G --> H[Encrypt Garbled Token signing-key]
         H --> I[base16-encode]
         I --> J(Generated Token)
         C -- No --> K(Error: Invalid Payload)
@@ -90,12 +90,12 @@ graph TD
         H -- Error --> M(Error: Signing Failed)
     end
 
-    subgraph Token Decryption (decrypt-token)
+    subgraph "Token Decryption (decrypt-token)"
         N[Input Token] --> O[base16-decode]
         O --> P[string-ungarble]
-        P --> Q[Decrypt Signed Payload (signing-key)]
+        P --> Q[Decrypt Signed Payload signing-key]
         Q --> R[string-ungarble]
-        R --> S[Decrypt Payload (encryption-key)]
+        R --> S[Decrypt Payload encryption-key]
         S --> T{Decryption Successful?}
         T -- Yes --> U[Base64 Decode Payload]
         U --> V[Parse Payload String]
@@ -105,7 +105,7 @@ graph TD
         T -- No --> Z(Error: Decryption Failed)
     end
 
-    subgraph Utility Functions
+    subgraph "Utility Functions"
         AA[syscall]
         BB[string-garble]
         CC[string-ungarble]
