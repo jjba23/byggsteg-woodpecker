@@ -20,5 +20,5 @@ ADD src/sh/byggsteg/prelude.sh /bin/
 ADD src/sh/byggsteg/get-token.sh /bin/
 RUN chmod +x /bin/prelude.sh
 RUN chmod +x /bin/get-token.sh
-RUN apk -Uuv add curl ca-certificates jq coreutils make grep
+RUN apk -Uuv add curl ca-certificates jq coreutils make grep ncurses
 ENTRYPOINT /bin/get-token.sh

@@ -20,5 +20,5 @@ ADD src/sh/byggsteg/prelude.sh /bin/
 ADD src/sh/byggsteg/submit-job.sh /bin/
 RUN chmod +x /bin/prelude.sh
 RUN chmod +x /bin/submit-job.sh
-RUN apk -Uuv add curl ca-certificates jq coreutils make
+RUN apk -Uuv add curl ca-certificates jq coreutils make ncurses
 ENTRYPOINT /bin/submit-job.sh
