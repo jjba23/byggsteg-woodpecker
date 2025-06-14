@@ -29,7 +29,7 @@ poll_for_job_success() {
     while [ "$poll_count" -lt "$poll_limit" ]; do        
         log_info "GET call to $PLUGIN_BYGGSTEG_URL/api/v1/logs/$byggsteg_log_id"      
         curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
-            --fail -s "$PLUGIN_BYGGSTEG_URL/api/v1/logs/$byggsteg_log_id" \
+            -s "$PLUGIN_BYGGSTEG_URL/api/v1/logs/$byggsteg_log_id" \
             > byggsteg-log-response.json
         from_jq "." "byggsteg-log-response.json"
 
