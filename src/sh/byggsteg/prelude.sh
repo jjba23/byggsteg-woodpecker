@@ -28,7 +28,6 @@ fg_bold="$(tput -T xterm bold)"
 fg_reset="$(tput -T xterm sgr0)"
 
 log_error() {
-  tput     
   printf "\n${fg_red}[ERROR][%s] %s${fg_reset}\n" "$(get_timestamp)" "$1" >&2
 }
 
