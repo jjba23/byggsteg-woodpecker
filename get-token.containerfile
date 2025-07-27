@@ -15,10 +15,10 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-FROM alpine:3.22.0
-ADD src/sh/byggsteg/prelude.sh /bin/
-ADD src/sh/byggsteg/get-token.sh /bin/
-RUN chmod +x /bin/prelude.sh
-RUN chmod +x /bin/get-token.sh
-RUN apk -Uuv add curl ca-certificates jq coreutils make grep ncurses
-ENTRYPOINT /bin/get-token.sh
+FROM alpine:3.22.1
+ADD src/bash/byggsteg/prelude.bash /bin/
+ADD src/bash/byggsteg/get-token.bash /bin/
+RUN chmod +x /bin/prelude.bash
+RUN chmod +x /bin/get-token.bash
+RUN apk -Uuv add bash curl ca-certificates jq coreutils make grep ncurses
+ENTRYPOINT /bin/get-token.bash

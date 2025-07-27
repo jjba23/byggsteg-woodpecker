@@ -25,7 +25,7 @@ https://hub.docker.com/repositories/jjba23
 
 The pipeline steps here act as a bridge, allowing the Woodpecker CI system to leverage Byggsteg for its powerful Lisp-based CI/CD orchestration, especially when working with source code hosted on platforms like Codeberg.
 
-The pipeline steps are written in shell script, and use Alpine Linux images achieving a great performance, simplicity and minimalism.
+The pipeline steps are written in Bash script, and use Alpine Linux images achieving a great performance, simplicity and minimalism.
 
 ----------------------
 

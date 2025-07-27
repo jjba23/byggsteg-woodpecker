@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # byggsteg-woodpecker
 
@@ -17,7 +17,7 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-. "prelude.sh"
+. "prelude.bash"
 
 poll_limit=${PLUGIN_POLL_LIMIT:-4096}
 poll_interval_seconds=${PLUGIN_POLL_INTERVAL_SECONDS:-8}

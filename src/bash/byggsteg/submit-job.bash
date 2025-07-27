@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 # byggsteg-woodpecker
 
@@ -17,7 +17,7 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-. "prelude.sh"
+. "prelude.bash"
 
 submit_job_to_byggsteg() {
     curl --user-agent "jjba23/byggsteg-woodpecker-submit-job" \

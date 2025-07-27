@@ -15,10 +15,10 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-FROM alpine:3.22.0
-ADD src/sh/byggsteg/prelude.sh /bin/
-ADD src/sh/byggsteg/poll-job.sh /bin/
-RUN chmod +x /bin/prelude.sh
-RUN chmod +x /bin/poll-job.sh
-RUN apk -Uuv add curl ca-certificates jq coreutils make ncurses
-ENTRYPOINT /bin/poll-job.sh
+FROM alpine:3.22.1
+ADD src/bash/byggsteg/prelude.bash /bin/
+ADD src/bash/byggsteg/poll-job.bash /bin/
+RUN chmod +x /bin/prelude.bash
+RUN chmod +x /bin/poll-job.bash
+RUN apk -Uuv add bash curl ca-certificates jq coreutils make ncurses
+ENTRYPOINT /bin/poll-job.bash
