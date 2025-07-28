@@ -16,9 +16,9 @@
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
 variables:
-  - &jointhefreeworld_tag_bumper_image 'jjba23/jointhefreeworld-woodpecker-tag-bumper:v0.1.10'
-  - &jointhefreeworld_ssh_install_image 'jjba23/jointhefreeworld-woodpecker-ssh-install:v0.1.10'
-  - &jointhefreeworld_ssh_clone_image 'jjba23/jointhefreeworld-woodpecker-ssh-clone:v0.1.10'
+  - &jointhefreeworld_tag_bumper_image 'jjba23/jointhefreeworld-woodpecker-tag-bumper:v0.1.12'
+  - &jointhefreeworld_ssh_install_image 'jjba23/jointhefreeworld-woodpecker-ssh-install:v0.1.12'
+  - &jointhefreeworld_ssh_clone_image 'jjba23/jointhefreeworld-woodpecker-ssh-clone:v0.1.12'
 
 skip_clone: true
 
