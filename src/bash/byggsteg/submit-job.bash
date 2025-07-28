@@ -35,7 +35,7 @@ submit_job_to_byggsteg() {
 #    file-outputs: byggsteg-log-id (the job's log UUID we will poll for status)
 #                  byggsteg-submit-job-response.json (the response body of submitting a job)
 main() {
-  if [[ ! -f "x-bewaking-byggsteg" ]]; then
+  if [[ ! -r "x-bewaking-byggsteg" ]]; then
     error_exit "file doesn't exist: x-bewaking-byggsteg"
   fi
 

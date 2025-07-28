@@ -39,7 +39,7 @@ main() {
 
   retry_command get_token_byggsteg
 
-  if [[ ! -f "x-bewaking-byggsteg" ]]; then
+  if [[ ! -r "x-bewaking-byggsteg" ]]; then
     error_exit "file doesn't exist: x-bewaking-byggsteg"
   else
     log_info "Byggsteg token fetched successfully"

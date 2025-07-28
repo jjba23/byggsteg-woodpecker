@@ -25,9 +25,11 @@ poll_for_job_success() {
   local job_failed=0
   local poll_limit=${PLUGIN_POLL_LIMIT:-4096}
   local poll_interval_seconds=${PLUGIN_POLL_INTERVAL_SECONDS:-8}
+  local response_file="byggsteg-log-response.json"
 
-  while [ "${poll_count}" -lt "${poll_limit}" ]; do
-    log_info "GET call to ${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}"
+  while ((poll_count < poll_limit)); do
+    log_info "Polling job status: GET ${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}"
+
     curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
       -s "${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}" \
       >byggsteg-log-response.json
@@ -62,11 +64,12 @@ poll_for_job_success() {
 #
 #   file-inputs: byggsteg-log-id (the log UUID we will poll for status)
 main() {
-  if [[ ! -f "byggsteg-log-id" ]]; then
+  if [[ ! -r "byggsteg-log-id" ]]; then
     error_exit "file doesn't exist: byggsteg-log-id"
   fi
 
-  byggsteg_log_id=$(cat byggsteg-log-id)
+  byggsteg_log_id=$(<byggsteg-log-id)
+
   # start polling for job status until success or limit reached
   poll_for_job_success
 }
