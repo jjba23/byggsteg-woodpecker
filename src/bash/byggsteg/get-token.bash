@@ -20,27 +20,27 @@
 . "prelude.bash"
 
 get_token_byggsteg() {
-    curl --user-agent "jjba23/byggsteg-woodpecker-get-token" \
-      --fail -s -i "$PLUGIN_BYGGSTEG_URL/api/v1/login" \
-      -X POST \
-      -H 'content-type: application/x-www-form-urlencoded' \
-      --data-urlencode "email=$PLUGIN_BYGGSTEG_EMAIL" \
-      --data-urlencode "password=$PLUGIN_BYGGSTEG_PASSWORD" \
-      | grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 \
-      > x-bewaking-byggsteg
+  curl --user-agent "jjba23/byggsteg-woodpecker-get-token" \
+    --fail -s -i "$PLUGIN_BYGGSTEG_URL/api/v1/login" \
+    -X POST \
+    -H 'content-type: application/x-www-form-urlencoded' \
+    --data-urlencode "email=$PLUGIN_BYGGSTEG_EMAIL" \
+    --data-urlencode "password=$PLUGIN_BYGGSTEG_PASSWORD" |
+    grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 \
+    >x-bewaking-byggsteg
 }
 
 # main -- entrypoint function
 #
 #   file-outputs: x-bewaking-token (the Byggsteg auth token to be used)
 main() {
-    log_info "Obtaining Byggsteg token..."
-    log_info "POST call to $PLUGIN_BYGGSTEG_URL/api/v1/login"
-    
-    retry_command get_token_byggsteg
+  log_info "Obtaining Byggsteg token..."
+  log_info "POST call to ${PLUGIN_BYGGSTEG_URL}/api/v1/login"
 
-    test -s "x-bewaking-byggsteg" && exit
-    log_info "Byggsteg token fetched successfully"
+  retry_command get_token_byggsteg
+
+  test -s "x-bewaking-byggsteg" && exit
+  log_info "Byggsteg token fetched successfully"
 }
 
 # Run the main function

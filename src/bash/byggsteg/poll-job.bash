@@ -19,53 +19,52 @@
 
 . "prelude.bash"
 
-poll_limit=${PLUGIN_POLL_LIMIT:-4096}
-poll_interval_seconds=${PLUGIN_POLL_INTERVAL_SECONDS:-8}
-poll_count=0
-job_succeeded=0
-job_failed=0
-
 poll_for_job_success() {
-    while [ "$poll_count" -lt "$poll_limit" ]; do        
-        log_info "GET call to $PLUGIN_BYGGSTEG_URL/api/v1/logs/$byggsteg_log_id"      
-        curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
-            -s "$PLUGIN_BYGGSTEG_URL/api/v1/logs/$byggsteg_log_id" \
-            > byggsteg-log-response.json
-        from_jq "." "byggsteg-log-response.json"
+  local poll_count=0
+  local job_succeeded=0
+  local job_failed=0
+  local poll_limit=${PLUGIN_POLL_LIMIT:-4096}
+  local poll_interval_seconds=${PLUGIN_POLL_INTERVAL_SECONDS:-8}
 
-        poll_count=$(( poll_count + 1 ))
+  while [ "${poll_count}" -lt "${poll_limit}" ]; do
+    log_info "GET call to ${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}"
+    curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
+      -s "${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}" \
+      >byggsteg-log-response.json
+    from_jq "." "byggsteg-log-response.json"
 
-        job_succeeded=$(from_jq '.["success"]' "byggsteg-log-response.json")
-        job_failed=$(from_jq '.["failure"]' "byggsteg-log-response.json")
+    poll_count=$((poll_count + 1))
 
-        if [ "$job_succeeded" -eq 1 ]; then
-            from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
-            log_info "Byggsteg job completed successfully!"
-            exit 0
-        fi
+    job_succeeded=$(from_jq '.["success"]' "byggsteg-log-response.json")
 
-        if [ "$job_failed" -eq 1 ]; then
-            from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
-            log_error "Byggsteg job failed!"
-            exit 1
-        fi      
+    job_failed=$(from_jq '.["failure"]' "byggsteg-log-response.json")
 
-        log_info "Byggsteg job in progress..."
-        log_info "Polling in $poll_interval_seconds seconds"
-        sleep "$poll_interval_seconds"
-    done
+    if [ "${job_succeeded}" -eq 1 ]; then
+      from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
+      log_info "Byggsteg job completed successfully!"
+      exit 0
+    fi
 
-    log_error "Reached limit of poll attempts ($poll_limit), pipeline failed"
-    exit 1          
+    if [ "${job_failed}" -eq 1 ]; then
+      from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
+      error_exit "Byggsteg job failed!"
+    fi
+
+    log_info "Byggsteg job in progress..."
+    log_info "Polling in ${poll_interval_seconds} seconds"
+    sleep "${poll_interval_seconds}"
+  done
+
+  error_exit "Reached limit of poll attempts (${poll_limit}), pipeline failed"
 }
 
 # main -- entrypoint function
 #
 #   file-inputs: byggsteg-log-id (the log UUID we will poll for status)
 main() {
-    byggsteg_log_id=$(cat byggsteg-log-id)
-    # start polling for job status until success or limit reached
-    poll_for_job_success
+  byggsteg_log_id=$(cat byggsteg-log-id)
+  # start polling for job status until success or limit reached
+  poll_for_job_success
 }
 
 # Run the main function

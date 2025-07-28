@@ -17,52 +17,62 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-set -euo;
+set -euo pipefail
 
 get_timestamp() {
   date '+%Y-%m-%d %H:%M:%S%:z'
 }
 
-fg_red="$(tput -T xterm setf 4)"
-fg_bold="$(tput -T xterm bold)"
-fg_reset="$(tput -T xterm sgr0)"
+red_text="$(tput -T xterm setf 4)"
+bold_text="$(tput -T xterm bold)"
+reset_text="$(tput -T xterm sgr0)"
 
 log_error() {
-  printf "\n${fg_red}[ERROR][%s] %s${fg_reset}\n" "$(get_timestamp)" "$1" >&2
+  printf "\n${red_text}[ERROR][%s] %s${reset_text}\n" "$(get_timestamp)" "$1" 1>&2
 }
 
 log_info() {
-  printf "\n${fg_bold}[INFO][%s] %s${fg_reset}\n" "$(get_timestamp)" "$1"
+  printf "\n${bold_text}[INFO][%s] %s${reset_text}\n" "$(get_timestamp)" "$1"
 }
 
 from_jq() {
-    jq_content=$(cat "$2")
-    printf "%s" "$jq_content" | jq -r "$1" || true
+  local jq_pattern="${1}"
+  local json_file="${2}"
+  local jq_content
+  jq_content=$(cat "${json_file}")
+  printf "%s" "${jq_content}" | jq -r "${jq_pattern}" || true
 }
 
 from_jq_base64() {
-    jq_content=$(cat "$2")
-    printf "%s" "$jq_content" | jq -r "$1" | base64 --decode --ignore-garbage || true
+  local jq_pattern="${1}"
+  local json_file="${2}"
+  local jq_content
+  jq_content=$(cat "${json_file}")
+  printf "%s" "${jq_content}" | jq -r "${jq_pattern}" | base64 --decode --ignore-garbage || true
 }
 
 retry_command() {
-    attempts_limit=${attempts_limit:-8}
-    attempts_interval_seconds=${attempts_interval_seconds:-4}
-    command_to_retry="$@"
+  attempts_limit=${attempts_limit:-8}
+  attempts_interval_seconds=${attempts_interval_seconds:-4}
+  command_to_retry="$@"
 
-    attempt_count=0
-    while [ "$attempt_count" -lt "$attempts_limit" ]; do
-        attempt_count=$((attempt_count + 1))
-        log_info "Attempt $attempt_count of $attempts_limit: Executing '$command_to_retry'"
-        if eval "$command_to_retry"; then
-            log_info "Command succeeded on attempt $attempt_count."
-            return 0
-        else
-            log_error "Command failed, retrying in $attempts_interval_seconds seconds..."
-            sleep "$attempts_interval_seconds"
-        fi
-    done
+  attempt_count=0
+  while [ "${attempt_count}" -lt "${attempts_limit}" ]; do
+    attempt_count=$((attempt_count + 1))
+    log_info "Attempt ${attempt_count} of ${attempts_limit}: Executing '${command_to_retry}'"
+    if eval "${command_to_retry}"; then
+      log_info "Command succeeded on attempt ${attempt_count}."
+      return 0
+    else
+      log_error "Command failed, retrying in ${attempts_interval_seconds} seconds..."
+      sleep "${attempts_interval_seconds}"
+    fi
+  done
 
-    log_error "Command failed after $attempts_limit attempts."
-    return 1
+  error_exit "Command failed after ${attempts_limit} attempts."
+}
+
+error_exit() {
+  log_error "${1}"
+  exit 1
 }
