@@ -21,12 +21,12 @@
 
 submit_job_to_byggsteg() {
   curl --user-agent "jjba23/byggsteg-woodpecker-submit-job" \
-    --fail -s "${PLUGIN_BYGGSTEG_URL}/api/v1/jobs/manage/submit" \
+    --fail -s -o "byggsteg-submit-job-response.json" \
+    "${PLUGIN_BYGGSTEG_URL}/api/v1/jobs/manage/submit" \
     -X POST \
     -H 'content-type: application/x-www-form-urlencoded' \
     -H "x-bewaking-byggsteg: ${byggsteg_token}" \
-    --data-urlencode "job-code=${byggsteg_job_code}" \
-    >byggsteg-submit-job-response.json
+    --data-urlencode "job-code=${byggsteg_job_code}"
 }
 
 # main -- entrypoint function
@@ -40,15 +40,10 @@ main() {
   fi
 
   local byggsteg_token
-  byggsteg_token=$(cat x-bewaking-byggsteg)
+  byggsteg_token=$(<x-bewaking-byggsteg)
 
-  local byggsteg_job_code="${PLUGIN_BYGGSTEG_JOB_CODE}"
-
-  for var_placeholder in $(echo "$PLUGIN_BYGGSTEG_JOB_CODE" | grep -Eo '%%[A-Z0-9_]+%%' | sort -u); do
-    var_name=$(echo "$var_placeholder" | sed 's/^%%//;s/%%$//')
-    var_value=$(eval echo "\$$var_name")
-    byggsteg_job_code=$(echo "$byggsteg_job_code" | sed "s#$(echo "$var_placeholder" | sed 's/%/\\%/g')#${var_value}#g")
-  done
+  local byggsteg_job_code
+  byggsteg_job_code=$(resolve_placeholders "${PLUGIN_BYGGSTEG_JOB_CODE}")
 
   log_info "Sending byggsteg job code:"
   echo "${byggsteg_job_code}"
@@ -56,10 +51,13 @@ main() {
   log_info "POST call to ${PLUGIN_BYGGSTEG_URL}/api/v1/jobs/manage/submit"
 
   retry_command submit_job_to_byggsteg
-  from_jq "." "byggsteg-submit-job-response.json"
+
+  local -r response_file="byggsteg-submit-job-response.json"
+
+  from_jq "." "${response_file}"
 
   local byggsteg_log_id
-  byggsteg_log_id=$(from_jq '.["log-id"]' "byggsteg-submit-job-response.json")
+  byggsteg_log_id=$(from_jq '.["log-id"]' "${response_file}")
 
   log_info "Job created at Byggsteg successfully, log-id: ${byggsteg_log_id}"
   echo "${byggsteg_log_id}" >byggsteg-log-id

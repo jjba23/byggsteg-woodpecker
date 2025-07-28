@@ -23,32 +23,33 @@ poll_for_job_success() {
   local poll_count=0
   local job_succeeded=0
   local job_failed=0
-  local poll_limit=${PLUGIN_POLL_LIMIT:-4096}
-  local poll_interval_seconds=${PLUGIN_POLL_INTERVAL_SECONDS:-8}
-  local response_file="byggsteg-log-response.json"
+
+  local -r poll_limit=${PLUGIN_POLL_LIMIT:-4096}
+  local -r poll_interval_seconds=${PLUGIN_POLL_INTERVAL_SECONDS:-8}
+  local -r response_file="byggsteg-log-response.json"
 
   while ((poll_count < poll_limit)); do
     log_info "Polling job status: GET ${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}"
 
     curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
       -s "${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}" \
-      >byggsteg-log-response.json
-    from_jq "." "byggsteg-log-response.json"
+      >"${response_file}"
+    from_jq "." "${response_file}"
 
     poll_count=$((poll_count + 1))
 
-    job_succeeded=$(from_jq '.["success"]' "byggsteg-log-response.json")
+    job_succeeded=$(from_jq '.["success"]' "${response_file}")
 
-    job_failed=$(from_jq '.["failure"]' "byggsteg-log-response.json")
+    job_failed=$(from_jq '.["failure"]' "${response_file}")
 
     if [ "${job_succeeded}" -eq 1 ]; then
-      from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
+      from_jq_base64 '.["log-data"]' "${response_file}"
       log_info "Byggsteg job completed successfully!"
       exit 0
     fi
 
     if [ "${job_failed}" -eq 1 ]; then
-      from_jq_base64 '.["log-data"]' "byggsteg-log-response.json"
+      from_jq_base64 '.["log-data"]' "${response_file}"
       error_exit "Byggsteg job failed!"
     fi
 

@@ -76,3 +76,29 @@ error_exit() {
   log_error "${1}"
   exit 1
 }
+
+# Safely and efficiently replaces placeholders like %%VAR%% with the value
+# of the corresponding environment variable $VAR.
+#
+# @param $1: The string containing placeholders.
+# @return: The string with placeholders resolved.
+resolve_placeholders() {
+  local template="$1"
+  local resolved_code="$template"
+  local placeholder_regex='%%([A-Z0-9_]+)%%'
+
+  # Loop as long as we find placeholders matching the regex
+  while [[ $resolved_code =~ $placeholder_regex ]]; do
+    local placeholder="${BASH_REMATCH[0]}" # Full match, e.g., %%VAR%%
+    local var_name="${BASH_REMATCH[1]}"    # Captured group, e.g., VAR
+
+    # Safely get the variable's value using indirect expansion.
+    # This avoids the dangerous 'eval' command. Defaults to empty if not set.
+    local var_value="${!var_name:-}"
+
+    # Use Bash's built-in substitution (faster than sed)
+    resolved_code="${resolved_code//"$placeholder"/"$var_value"}"
+  done
+
+  echo "$resolved_code"
+}
