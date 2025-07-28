@@ -21,11 +21,11 @@
 
 get_token_byggsteg() {
   curl --user-agent "jjba23/byggsteg-woodpecker-get-token" \
-    --fail -s -i "$PLUGIN_BYGGSTEG_URL/api/v1/login" \
+    --fail -s -i "${PLUGIN_BYGGSTEG_URL}/api/v1/login" \
     -X POST \
     -H 'content-type: application/x-www-form-urlencoded' \
-    --data-urlencode "email=$PLUGIN_BYGGSTEG_EMAIL" \
-    --data-urlencode "password=$PLUGIN_BYGGSTEG_PASSWORD" |
+    --data-urlencode "email=${PLUGIN_BYGGSTEG_EMAIL}" \
+    --data-urlencode "password=${PLUGIN_BYGGSTEG_PASSWORD}" |
     grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 \
     >x-bewaking-byggsteg
 }
@@ -39,8 +39,11 @@ main() {
 
   retry_command get_token_byggsteg
 
-  test -s "x-bewaking-byggsteg" && exit
-  log_info "Byggsteg token fetched successfully"
+  if [[ ! -f "x-bewaking-byggsteg" ]]; then
+    error_exit "file doesn't exist: x-bewaking-byggsteg"
+  else
+    log_info "Byggsteg token fetched successfully"
+  fi
 }
 
 # Run the main function

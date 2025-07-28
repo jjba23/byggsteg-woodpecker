@@ -62,6 +62,10 @@ poll_for_job_success() {
 #
 #   file-inputs: byggsteg-log-id (the log UUID we will poll for status)
 main() {
+  if [[ ! -f "byggsteg-log-id" ]]; then
+    error_exit "file doesn't exist: byggsteg-log-id"
+  fi
+
   byggsteg_log_id=$(cat byggsteg-log-id)
   # start polling for job status until success or limit reached
   poll_for_job_success

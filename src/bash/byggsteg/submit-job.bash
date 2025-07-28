@@ -21,7 +21,7 @@
 
 submit_job_to_byggsteg() {
   curl --user-agent "jjba23/byggsteg-woodpecker-submit-job" \
-    --fail -s "$PLUGIN_BYGGSTEG_URL/api/v1/jobs/manage/submit" \
+    --fail -s "${PLUGIN_BYGGSTEG_URL}/api/v1/jobs/manage/submit" \
     -X POST \
     -H 'content-type: application/x-www-form-urlencoded' \
     -H "x-bewaking-byggsteg: ${byggsteg_token}" \
@@ -35,6 +35,10 @@ submit_job_to_byggsteg() {
 #    file-outputs: byggsteg-log-id (the job's log UUID we will poll for status)
 #                  byggsteg-submit-job-response.json (the response body of submitting a job)
 main() {
+  if [[ ! -f "x-bewaking-byggsteg" ]]; then
+    error_exit "file doesn't exist: x-bewaking-byggsteg"
+  fi
+
   local byggsteg_token
   byggsteg_token=$(cat x-bewaking-byggsteg)
 
