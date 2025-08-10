@@ -16,32 +16,34 @@
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
 variables:
-  - &jointhefreeworld_tag_bumper_image 'jjba23/jointhefreeworld-woodpecker-tag-bumper:v0.1.12'
-  - &jointhefreeworld_ssh_install_image 'jjba23/jointhefreeworld-woodpecker-ssh-install:v0.1.12'
-  - &jointhefreeworld_ssh_clone_image 'jjba23/jointhefreeworld-woodpecker-ssh-clone:v0.1.12'
+  - &tag_bumper_image 'docker.io/jjba23/jointhefreeworld-woodpecker-tag-bumper:v0.1.12'
+  - &ssh_install_image 'docker.io/jjba23/jointhefreeworld-woodpecker-ssh-install:v0.1.12'
+  - &ssh_clone_image 'docker.io/jjba23/jointhefreeworld-woodpecker-ssh-clone:v0.1.12'
+  - &main_branch 'trunk'
 
 skip_clone: true
 
 steps:
   ssh-install:
-    image: *jointhefreeworld_ssh_install_image
+    name: "🔑 Install SSH keys"
+    image: *ssh_install_image
     when:
-      - event: [ "push" ]
-        branch: [ "trunk" ]
+      - event: [ push ]
+        branch: [ *main_branch ]
     settings:
       GIT_SSH_AUTH:
-        from_secret: "GIT_SSH_AUTH"  
-            
+        from_secret: GIT_SSH_AUTH
+
   ssh-clone:
-    image: *jointhefreeworld_ssh_clone_image
+    name: "⬇️ SSH clone Git repository"
+    image: *ssh_clone_image
     when:
-      - event: [ "push" ]
-        branch: [ "trunk" ]     
+      - event: [ push ]
+        branch: [ *main_branch ]
 
   bump-repo-tag:
-    image: *jointhefreeworld_tag_bumper_image
+    name: "👟 Bump up the version"
+    image: *tag_bumper_image
     when:
-      - event: [ "push" ]
-        branch: [ "trunk" ]
-
-        
+      - event: [ push ]
+        branch: [ *main_branch ]
