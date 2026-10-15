@@ -1,87 +1,103 @@
 #+title: Byggsteg Woodpecker Plugins
+#+subtitle: bridge Woodpecker CI to Byggsteg pipelines
 #+author: Josep Bigorra
 #+email: jjbigorra@gmail.com
 #+language: en
+#+options: toc:nil num:nil
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="https://jointhefreeworld.org/static/css/jointhefreeworld.css" />
 
-[[https://jointhefreeworld.org/ggg/dist/license-lgpl3+.svg]]    [[https://jointhefreeworld.org/ggg/dist/license-fdl13+.svg]]
+[[https://jointhefreeworld.org/ggg/dist/shell-bash.svg]] [[https://jointhefreeworld.org/ggg/dist/maak.svg]] [[https://jointhefreeworld.org/ggg/dist/license-lgpl3+.svg]] [[https://jointhefreeworld.org/ggg/dist/license-fdl13+.svg]] [[https://img.shields.io/badge/CI-Byggsteg%20%7C%20Woodpecker-2ea44f.svg]]
 
-Integrate Byggsteg pipelines easily into your Woodpecker CI setup (for example at Codeberg).
+/bridge Woodpecker CI to Byggsteg pipelines/
 
-Find Byggsteg here: https://codeberg.org/jjba23/byggsteg
+Integrate [[https://codeberg.org/jjba23/byggsteg][Byggsteg]] pipelines easily into your [[https://woodpecker-ci.org/][Woodpecker CI]] setup (for example at Codeberg), with three tiny Alpine-based pipeline steps.
 
-Find Woodpecker here: https://woodpecker-ci.org/
+- 📖 *Byggsteg:* [[https://codeberg.org/jjba23/byggsteg][codeberg.org/jjba23/byggsteg]]
+- 🐳 *Published images:* [[https://hub.docker.com/repositories/jjba23][hub.docker.com/u/jjba23]]
+- 💾 *Read the source (and send patches):* [[https://codeberg.org/jjba23/byggsteg-woodpecker][codeberg.org/jjba23/byggsteg-woodpecker]]
+- 🛠️ *Tasks are run with:* [[https://codeberg.org/jjba23/maak][Maak]]
 
-* What's here
+If you like my work, please support me by [[https://bmc.link/jjbigorra][buying me a cup of coffee ☕]] so I can continue with a lot of motivation.
 
-In this repository the following container images and respective sources are provided:
+#+TOC: headlines 1
 
-- jjba23/byggsteg-woodpecker-get-token :: pipeline step used to authenticate to Byggsteg
-- jjba23/byggsteg-woodpecker-submit-job :: pipeline step used to submit a pipeline to your instance of Byggsteg with a retry mechanism
-- jjba23/byggsteg-woodpecker-poll-job   :: pipeline step used to poll for status of your Byggsteg job
+------------------
 
-Find published images at DockerHub:
+* What this is
 
-https://hub.docker.com/repositories/jjba23
+Woodpecker runs a pipeline as a series of container steps. Byggsteg runs CI/CD
+jobs described as Lisp (Scheme) thunks. This repository is the bridge between
+the two: three small pipeline steps that let a Woodpecker pipeline authenticate
+to Byggsteg, hand it a job, and faithfully report the job's outcome back to
+Woodpecker -- so a Woodpecker build goes green or red according to what Byggsteg
+actually did.
 
-The pipeline steps here act as a bridge, allowing the Woodpecker CI system to leverage Byggsteg for its powerful Lisp-based CI/CD orchestration, especially when working with source code hosted on platforms like Codeberg.
+The steps are plain Bash on top of Alpine Linux. They pull in only ~bash~,
+~curl~ and ~ca-certificates~ (everything else they use is already in busybox),
+each image lands around 16 MB, and they stay deliberately small so CI pulls and
+job startup stay fast.
 
-The pipeline steps are written in Bash script, and use Alpine Linux images achieving a great performance, simplicity and minimalism.
+** The three steps
 
-----------------------
+|------------------------------------+---------------------------------------------------------|
+| *Image*                            | *Role*                                                   |
+|------------------------------------+---------------------------------------------------------|
+| ~byggsteg-woodpecker-get-token~    | Authenticate to Byggsteg and store the session token.    |
+| ~byggsteg-woodpecker-submit-job~   | Submit a Lisp job definition, get back its log id.       |
+| ~byggsteg-woodpecker-poll-job~     | Poll until the job finishes; pass or fail the build.     |
+|------------------------------------+---------------------------------------------------------|
 
-* byggsteg-woodpecker-get-token
+------------------
 
-byggsteg-woodpecker-get-token is the start point of any operation that involves using Byggsteg, since we need to authenticate ourselves and get a "bewaking token". In this step, we use ~BYGGSTEG_EMAIL~ and ~BYGGSTEG_PASSWORD~ to call ~/api/v1/login~ at Byggsteg and receive a ~x-bewaking-token~ in the response header. Upon succesfully receiving this token and checking its validity we persist it to a file also called ~x-bewaking-token~ which ensures we can reuse the token in future pipeline steps.
+* How it works
 
-* byggsteg-woodpecker-submit-job
+The three steps run in order and talk to each other through files in Woodpecker's
+shared workspace (the working directory every step runs in):
 
-byggsteg-woodpecker-submit-job is the trigger mechanism. It allows a Woodpecker pipeline, after detecting a change in a Codeberg repository, to tell Byggsteg, "Hey, here's a new job for you to run, based on this project and branch". This script's primary function is to initiate a new CI/CD job on the Byggsteg orchestrator.
+#+begin_example
+            get-token                 submit-job                poll-job
+   ┌───────────────────┐    ┌────────────────────────┐   ┌────────────────────┐
+   │ POST /api/v1/login│    │ POST /api/v1/jobs/...   │   │ GET /api/v1/logs/… │
+   │  ──> token        │    │  ──> log-id             │   │  … until done      │
+   └─────────┬─────────┘    └───────────┬────────────┘   └─────────┬──────────┘
+             │                          │                          │
+     x-bewaking-byggsteg ──────> byggsteg-log-id ────────> (status + output)
+#+end_example
 
-It starts by taking a Byggsteg job definition (lambda thunk), written in Lisp (Scheme) via the ~BYGGSTEG_JOB_CODE~ setting.
-    
-It then will replace placeholders by the environment variables in a Woodpecker CI pipeline (e.g., ~%%CI_REPO_NAME%%~) . This allows the Byggsteg job to be dynamically configured based on information from the CI environment (like the current project name, branch, etc., often derived from a Codeberg repository). 
-    
-It authenticates with the Byggsteg instance using provided username (~BYGGSTEG_USERNAME~) and password/key (~BYGGSTEG_KEY~).
-    
-It constructs a POST request to Byggsteg's ~/api/v1/jobs/manage/submit~ endpoint, sending the authenticated and dynamically generated Lisp job code, with a configurable retry mechanism.
-    
-Upon successful submission, Byggsteg responds with a unique log-id for the newly created job, which is captured by this script, then saved to a local file named ~byggsteg-log-id~. This file acts as a direct communication channel for the subsequent poll-job script.
+The files exchanged between steps are:
 
-* byggsteg-woodpecker-poll-job
+|-------------------------------+-----------------------------------------------------------|
+| *File*                        | *Written by / read by*                                    |
+|-------------------------------+-----------------------------------------------------------|
+| ~x-bewaking-byggsteg~         | written by get-token, read by submit-job                  |
+| ~byggsteg-log-id~             | written by submit-job, read by poll-job                   |
+| ~byggsteg-submit-job-response.json~ | written by submit-job (the submit response body)    |
+| ~byggsteg-log-response.json~  | written by poll-job (the last status response body)       |
+|-------------------------------+-----------------------------------------------------------|
 
-byggsteg-woodpecker-poll-job is the monitoring and feedback mechanism. It ensures that the Woodpecker pipeline doesn't just blindly trigger a job but actively waits for and reports on its completion and outcome, allowing the Woodpecker build status to accurately reflect the Byggsteg job's success or failure. This script's primary function is to monitor the execution status of a Byggsteg job that was previously submitted.
+** What you see in the logs
 
-It starts by reading the log-id from the ~byggsteg-log-id~ file, which was created by the byggsteg-woodpecker-submit-job script.
+The steps are deliberately quiet. Each prints a line or two as it works, and:
 
-It then enters a loop, periodically making GET requests to Byggsteg's ~/api/v1/logs/$BYGGSTEG_LOG_ID~ endpoint. This allows it to query the real-time status of the job.
+- *on success or failure, poll-job prints the job's output* (the log Byggsteg
+  recorded for it) exactly once -- nothing is dumped while the job is still
+  running;
+- *on success, submit-job prints the JSON Byggsteg answered with* (the ~log-id~
+  and title);
+- every error goes to stderr, in red, prefixed with a timestamp.
 
-From Byggsteg's JSON response, it extracts success, failure, and in-progress flags, and then it decodes and prints the log-data (the actual output/logs from the Byggsteg job) to the console, ensuring that the Byggsteg job's execution details are visible within the Woodpecker build logs.
+So a green build shows you the job's output and little else, and a red build
+shows you the same output plus the reason it failed -- no per-poll noise.
 
-If Byggsteg reports success: 1, the script exits with 0 (success), indicating to Woodpecker that the Byggsteg-orchestrated task completed successfully.
-If Byggsteg reports failure: 1, the script exits with 1 (failure), causing the Woodpecker build to fail.
-Else if the job is still in-progress, it waits for a defined interval (~_POLL_INTERVAL_SECONDS~) and polls again, up to a maximum limit (~POLL_LIMIT~).
-
-If the polling limit is reached and the job has not completed, the script exits with 1, indicating a timeout failure.
-
-----------------------------
-
-* Seamless Integration with Woodpecker and Codeberg to Byggsteg
-
-Together, these steps create a robust and seamless workflow:
-
-In essence, these scripts allow Woodpecker to delegate complex, Lisp-defined CI/CD tasks to Byggsteg, while maintaining full visibility and control over the overall pipeline status, all triggered by changes in your Codeberg repositories. This creates a powerful, flexible, and integrated CI/CD ecosystem.
-
----------------
+------------------
 
 * Example usage
 
-See here an example that I use for Codeberg:
-
 #+begin_src yaml
 variables:
-  - &submit_job_image 'docker.io/jjba23/byggsteg-woodpecker-submit-job:v0.1.32'
-  - &poll_job_image 'docker.io/jjba23/byggsteg-woodpecker-poll-job:v0.1.32'
-  - &get_token_image 'docker.io/jjba23/byggsteg-woodpecker-get-token:v0.1.32'
+  - &submit_job_image 'docker.io/jjba23/byggsteg-woodpecker-submit-job:v0.1.34'
+  - &poll_job_image 'docker.io/jjba23/byggsteg-woodpecker-poll-job:v0.1.34'
+  - &get_token_image 'docker.io/jjba23/byggsteg-woodpecker-get-token:v0.1.34'
   - &jointhefreeworld_byggsteg_url 'https://byggsteg.jointhefreeworld.org'
   - &main_branch 'trunk'
 
@@ -90,23 +106,24 @@ clone:
     image: woodpeckerci/plugin-git
     settings:
       depth: 1
-  
+
 steps:
   get-byggsteg-token:
-    name: "🔒 Get token @ Byggsteg"    
+    name: "🔒 Get token @ Byggsteg"
     image: *get_token_image
     when:
       - event: [ push ]
         branch: [ *main_branch ]
     settings:
+      BYGGSTEG_URL:
+        from_secret: BYGGSTEG_URL
       BYGGSTEG_EMAIL:
         from_secret: BYGGSTEG_EMAIL
       BYGGSTEG_PASSWORD:
         from_secret: BYGGSTEG_PASSWORD
-      BYGGSTEG_URL: *jointhefreeworld_byggsteg_url
-      
+
   submit-byggsteg-job:
-    name: "💼 Submit job @ Byggsteg"    
+    name: "💼 Submit job @ Byggsteg"
     image: *submit_job_image
     when:
       - event: [ push ]
@@ -117,33 +134,200 @@ steps:
         (lambda()
           `((task . ("make-test" "pull-and-deploy"))
             (project . "%%CI_REPO_NAME%%")
-            (branch-name . "%%CI_COMMIT_BRANCH%%")            
+            (branch-name . "%%CI_COMMIT_BRANCH%%")
             (clone-url . "%%CI_REPO_CLONE_URL%%")))
-            
+
   poll-byggsteg-job:
-    name: "🔄 Poll job status @ Byggsteg"    
+    name: "🔄 Poll job status @ Byggsteg"
     image: *poll_job_image
     when:
       - event: [ push ]
         branch: [ *main_branch ]
-    settings:   
+    settings:
       BYGGSTEG_URL: *jointhefreeworld_byggsteg_url
-
 #+end_src
 
---------------
+Woodpecker turns each ~settings~ key into a ~PLUGIN_*~ environment variable that
+the step reads (so ~BYGGSTEG_URL~ is seen by the script as
+~PLUGIN_BYGGSTEG_URL~). The step scripts also have access to the whole Woodpecker
+build context, which is what makes the ~%%CI_*%%~ placeholders in
+~BYGGSTEG_JOB_CODE~ work: before submitting, submit-job replaces every
+~%%NAME%%~ with the value of the environment variable ~NAME~.
+
+------------------
+
+* Settings reference
+
+Settings are the Woodpecker ~settings~ keys; each becomes a ~PLUGIN_~-prefixed
+environment variable for the step.
+
+** byggsteg-woodpecker-get-token
+
+|----------------------------+-----------+------------------------------------------------|
+| *Setting*                  | *Default* | *Meaning*                                      |
+|----------------------------+-----------+------------------------------------------------|
+| ~BYGGSTEG_URL~             | --        | Base URL of your Byggsteg instance.            |
+| ~BYGGSTEG_EMAIL~           | --        | Email of the Byggsteg account.                 |
+| ~BYGGSTEG_PASSWORD~        | --        | Password/key of that account.                  |
+|----------------------------+-----------+------------------------------------------------|
+
+It ~POST~s to ~/api/v1/login~ and stores the ~x-bewaking-byggsteg~ token the
+response carries in the file ~x-bewaking-byggsteg~ for later steps.
+
+** byggsteg-woodpecker-submit-job
+
+|--------------------------+-----------+--------------------------------------------------|
+| *Setting*                | *Default* | *Meaning*                                        |
+|--------------------------+-----------+--------------------------------------------------|
+| ~BYGGSTEG_URL~           | --        | Base URL of your Byggsteg instance.              |
+| ~BYGGSTEG_JOB_CODE~      | --        | The Lisp job definition (see the example above). |
+|--------------------------+-----------+--------------------------------------------------|
+
+It reads the token file, expands the ~%%...%%~ placeholders in the job code,
+~POST~s to ~/api/v1/jobs/manage/submit~ and stores the returned ~log-id~ in the
+file ~byggsteg-log-id~.
+
+** byggsteg-woodpecker-poll-job
+
+|---------------------------------+-----------+--------------------------------------------|
+| *Setting*                       | *Default* | *Meaning*                                  |
+|---------------------------------+-----------+--------------------------------------------|
+| ~BYGGSTEG_URL~                  | --        | Base URL of your Byggsteg instance.        |
+| ~POLL_LIMIT~                    | ~4096~    | Maximum number of status polls before the  |
+|                                 |           | step gives up and fails the build.         |
+| ~POLL_INTERVAL_SECONDS~         | ~8~       | Seconds to wait between polls.             |
+|---------------------------------+-----------+--------------------------------------------|
+
+It reads the log id, then ~GET~s ~/api/v1/logs/<log-id>~ until Byggsteg reports
+~success~ or ~failure~. ~success~ exits 0, ~failure~ exits 1, and reaching the
+poll limit exits 1 as a timeout.
+
+** Advanced: retry tuning
+
+The token and submit steps retry transient failures (network problems, HTTP
+errors). Fine-tune the retries with plain environment variables if the defaults
+are too impatient or too eager:
+
+|--------------------------------+-----------+----------------------------------------|
+| *Variable*                     | *Default* | *Meaning*                              |
+|--------------------------------+-----------+----------------------------------------|
+| ~BYGGSTEG_RETRY_ATTEMPTS~      | ~8~       | Total attempts before the step fails.  |
+| ~BYGGSTEG_RETRY_INTERVAL~      | ~4~       | Seconds to wait before the next retry. |
+|--------------------------------+-----------+----------------------------------------|
+
+------------------
+
+* Developing
+
+The project's tasks are declared in ~maak.scm~ and run with
+[[https://codeberg.org/jjba23/maak][Maak]]; ~maak --list~ shows them all:
+
+#+begin_src sh
+maak build              # build the three step images
+maak push               # build (if needed) and push the three step images
+maak build get-token    # ...or a single step
+maak lint               # shellcheck the step scripts and the test runner
+maak fmt                # format them with shfmt
+maak test               # run the end-to-end tests
+maak sizes              # report the size of each built image
+maak clean              # remove the locally built images
+#+end_src
+
+The images are built with ~podman~ and published to DockerHub. The image tag is
+the exact git tag you are standing on (or the short commit hash, away from a
+tag); set ~VERSION~ to name it yourself. Override the registry or organisation
+for your own builds with ~IMAGE_REGISTRY~ and ~IMAGE_ORG~:
+
+#+begin_src sh
+IMAGE_REGISTRY=ghcr.io IMAGE_ORG=yourname maak build push
+#+end_src
+
+** Linting and testing
+
+~maak lint~ runs [[https://www.shellcheck.net/][shellcheck]] over the step scripts and the test runner, and
+~maak fmt~ formats them with [[https://github.com/mvdan/sh][shfmt]].
+
+~maak test~ runs the end-to-end suite in ~test/~. It starts a small mock of the
+Byggsteg API ([[file:test/mock-byggsteg.scm][test/mock-byggsteg.scm]], written in Guile -- the language Maak
+already needs) and points the step scripts at it, so the whole suite needs
+nothing but ~bash~, ~curl~ and ~guile~: no image build and no Byggsteg instance.
+It covers the happy paths and the ways they go wrong, including the errors worth
+having a mock for:
+
+|--------------------------+--------------------------------------------------------|
+| *Scenario*               | *What it checks*                                         |
+|--------------------------+--------------------------------------------------------|
+| ~success~                | token stored, job submitted, job passes                   |
+| ~failure~                | a job that fails fails the step (exit 1)                  |
+| ~timeout~                | a job that never finishes times out, with no poll noise   |
+| ~login-error~            | a login answering 500 exhausts the retries                |
+| ~submit-error~           | a submit answering 500 exhausts the retries               |
+| ~login-no-token~         | a login answering 200 with no token fails                 |
+| ~submit-not-json~        | a submit answering with a non-JSON body fails             |
+| ~submit-no-log-id~       | a submit answer without a log-id fails                    |
+| ~status-not-json~        | an unrecognizable status fails at once, not at the limit  |
+|--------------------------+--------------------------------------------------------|
+
+The last four are answers that are wrong without being errors: a 200 that
+carries no token, a body that is not the JSON the step expects, JSON without
+the field it needs.  The steps must fail on those rather than pass on nothing --
+and the tests pin that down, checking the exit code and that an unrecognizable
+status fails on the first poll instead of running out the clock.
+
+It also checks the errors that are the operator's to fix: a step run out of
+order (submit without a token, poll without a log id) and a step missing its
+required settings.
+
+** How big the images are
+
+Each of the three images is Alpine with one short list of packages and the two
+scripts it runs:
+
+- *packages:* ~bash curl ca-certificates~ -- three, down from eight (~jq~,
+  ~coreutils~, ~make~, ~grep~ and ~ncurses~ used to be installed too);
+- *size:* about ~16.5 MB~ per image on disk, down from about ~30.7 MB~;
+- *files:* the shared ~prelude.bash~ and the step's own script.
+
+Everything else the scripts reach for is already in busybox (~date~, ~sed~,
+~tr~, ~head~, ~base64~, ~sleep~). There is deliberately no ~jq~: the Byggsteg
+responses are small, flat JSON objects, so the few fields the steps read are
+pulled out with bash pattern matching, and neither ~jq~ nor the ~oniguruma~ it
+drags along has to be downloaded at the start of every pipeline step. ~maak
+sizes~ prints the measured size of each image you have built.
+
+------------------
+
+* Troubleshooting
+
+- *"missing token file: x-bewaking-byggsteg"* -- the submit step ran without the
+  get-token step before it (or in a different workspace). Keep the three steps
+  in the same pipeline, in order.
+- *"missing log-id file: byggsteg-log-id"* -- the poll step ran without a
+  successful submit step before it.
+- *Login fails with a 401* -- check ~BYGGSTEG_EMAIL~ / ~BYGGSTEG_PASSWORD~.
+  The get-token step retries and then fails; the HTTP error is printed.
+- *"Timed out waiting for Byggsteg job"* -- the job ran longer than
+  ~POLL_LIMIT × POLL_INTERVAL_SECONDS~. Raise ~POLL_LIMIT~ or the interval.
+- *Job output looks truncated* -- what is printed is exactly what Byggsteg
+  recorded (~log-data~); the raw status response is also kept in the workspace,
+  in ~byggsteg-log-response.json~.
+
+------------------
 
 * Licensing
 
-byggsteg-woodpecker and all of its source code are free software, licensed under the Lesser GNU General Public License v3 (or newer at your convenience).
+byggsteg-woodpecker and all of its source code are free software, licensed under
+the Lesser GNU General Public License v3 (or newer at your convenience).
 
 https://www.gnu.org/licenses/lgpl-3.0.html
 
-The documentation and examples, including this document, which are provided with byggsteg-woodpecker, are all licensed under the GNU Free Documentation License v1.3 (or newer at your convenience).
+The documentation and examples, including this document, which are provided with
+byggsteg-woodpecker, are all licensed under the GNU Free Documentation License
+v1.3 (or newer at your convenience).
 
 https://www.gnu.org/licenses/fdl-1.3.html
 
----------
+------------------
 
 * Code of conduct
 
@@ -151,6 +335,8 @@ This project adheres to the jointhefreeworld code of conduct. Find it here:
 
 https://jointhefreeworld.org/blog/articles/personal/jointhefreeworld-code-of-conduct/index.html
 
-In summary, we foster an inclusive, respectful, and cooperative environment for all contributors and users of this free software project. Inspired by the ideals of the GNU Project, we strive to uphold freedom, equality, and community as guiding principles. We believe that collaboration in a community of mutual respect is essential to creating excellent free software.
-
----------
+In summary, we foster an inclusive, respectful, and cooperative environment for
+all contributors and users of this free software project. Inspired by the ideals
+of the GNU Project, we strive to uphold freedom, equality, and community as
+guiding principles. We believe that collaboration in a community of mutual
+respect is essential to creating excellent free software.

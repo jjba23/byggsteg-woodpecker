@@ -17,88 +17,157 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
+# Sourced (via $PATH) by every step.  Everything the images rely on past this
+# point is core bash plus the few busybox applets Alpine ships (date, sed, tr,
+# head, base64, sleep), so no jq, ncurses, coreutils, make or GNU grep is needed
+# -- smaller images and faster pulls for CI.
+
 set -euo pipefail
 
-get_timestamp() {
-  date '+%Y-%m-%d %H:%M:%S%:z'
-}
+# ---------------------------------------------------------------------------
+# Shared files exchanged between the pipeline steps (Woodpecker runs every step
+# in the same workspace/working directory).
+# ---------------------------------------------------------------------------
 
-red_text="$(tput -T xterm setf 4)"
-bold_text="$(tput -T xterm bold)"
-reset_text="$(tput -T xterm sgr0)"
+# shellcheck disable=SC2034  # used by the steps that source this file
+readonly BYGGSTEG_TOKEN_FILE="x-bewaking-byggsteg"
+# shellcheck disable=SC2034
+readonly BYGGSTEG_LOG_ID_FILE="byggsteg-log-id"
+# shellcheck disable=SC2034
+readonly BYGGSTEG_SUBMIT_RESPONSE_FILE="byggsteg-submit-job-response.json"
+# shellcheck disable=SC2034
+readonly BYGGSTEG_LOG_RESPONSE_FILE="byggsteg-log-response.json"
 
-log_error() {
-  printf "\n${red_text}[ERROR][%s] %s${reset_text}\n" "$(get_timestamp)" "$1" 1>&2
+# ---------------------------------------------------------------------------
+# Logging
+#
+# Plain ANSI escapes rather than `tput`, so the images do not need ncurses and
+# its terminfo database.  Info goes to stdout, errors to stderr.
+# ---------------------------------------------------------------------------
+
+_style_info=$'\033[1m'     # bold
+_style_error=$'\033[1;31m' # bold red
+_style_reset=$'\033[0m'
+
+_timestamp() {
+  date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
 log_info() {
-  printf "\n${bold_text}[INFO][%s] %s${reset_text}\n" "$(get_timestamp)" "$1"
+  printf '%s[INFO][%s] %s%s\n' "${_style_info}" "$(_timestamp)" "$*" "${_style_reset}"
 }
 
-from_jq() {
-  local jq_pattern="${1}"
-  local json_file="${2}"
-  local jq_content
-  jq_content=$(cat "${json_file}")
-  printf "%s" "${jq_content}" | jq -r "${jq_pattern}" || true
-}
-
-from_jq_base64() {
-  local jq_pattern="${1}"
-  local json_file="${2}"
-  local jq_content
-  jq_content=$(cat "${json_file}")
-  printf "%s" "${jq_content}" | jq -r "${jq_pattern}" | base64 --decode --ignore-garbage || true
-}
-
-retry_command() {
-  attempts_limit=${attempts_limit:-8}
-  attempts_interval_seconds=${attempts_interval_seconds:-4}
-  command_to_retry="$@"
-
-  attempt_count=0
-  while [ "${attempt_count}" -lt "${attempts_limit}" ]; do
-    attempt_count=$((attempt_count + 1))
-    log_info "Attempt ${attempt_count} of ${attempts_limit}: Executing '${command_to_retry}'"
-    if eval "${command_to_retry}"; then
-      log_info "Command succeeded on attempt ${attempt_count}."
-      return 0
-    else
-      log_error "Command failed, retrying in ${attempts_interval_seconds} seconds..."
-      sleep "${attempts_interval_seconds}"
-    fi
-  done
-
-  error_exit "Command failed after ${attempts_limit} attempts."
+log_error() {
+  printf '%s[ERROR][%s] %s%s\n' "${_style_error}" "$(_timestamp)" "$*" "${_style_reset}" 1>&2
 }
 
 error_exit() {
-  log_error "${1}"
+  log_error "$*"
   exit 1
 }
 
-# Safely and efficiently replaces placeholders like %%VAR%% with the value
-# of the corresponding environment variable $VAR.
+# ---------------------------------------------------------------------------
+# retry_command <command> [args...]
 #
-# @param $1: The string containing placeholders.
-# @return: The string with placeholders resolved.
+# Runs a command until it succeeds, or fails the step after the attempt limit.
+# Tune with BYGGSTEG_RETRY_ATTEMPTS (default 8) and BYGGSTEG_RETRY_INTERVAL
+# (seconds, default 4).
+# ---------------------------------------------------------------------------
+
+retry_command() {
+  local -r attempts_limit="${BYGGSTEG_RETRY_ATTEMPTS:-8}"
+  local -r interval_seconds="${BYGGSTEG_RETRY_INTERVAL:-4}"
+  local attempt=0
+
+  while ((attempt < attempts_limit)); do
+    attempt=$((attempt + 1))
+
+    if "$@"; then
+      return 0
+    fi
+
+    ((attempt >= attempts_limit)) && break
+
+    log_error "Attempt ${attempt}/${attempts_limit} failed, retrying in ${interval_seconds}s: $*"
+    sleep "${interval_seconds}"
+  done
+
+  error_exit "Command failed after ${attempts_limit} attempts: $*"
+}
+
+# ---------------------------------------------------------------------------
+# Minimal JSON readers
+#
+# Byggsteg answers with a small, flat JSON object, so the handful of fields we
+# need are read with bash pattern matching instead of shipping jq (and, with
+# it, oniguruma) in the images.  Both print nothing when the key is absent.
+# ---------------------------------------------------------------------------
+
+# json_string <key> <file>
+json_string() {
+  local -r key="$1" file="$2"
+  local content
+  content="$(<"${file}")"
+  if [[ ${content} =~ \"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+}
+
+# json_number <key> <file>
+json_number() {
+  local -r key="$1" file="$2"
+  local content
+  content="$(<"${file}")"
+  if [[ ${content} =~ \"${key}\"[[:space:]]*:[[:space:]]*(-?[0-9]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  fi
+}
+
+# json_has_key <key> <file> -- true when KEY appears as a JSON key, whatever
+# its value.  Used to tell a real response from whatever else a server (or a
+# proxy in front of it) decided to answer with.
+json_has_key() {
+  local -r key="$1" file="$2"
+  local content=""
+  if [[ -r "${file}" ]]; then
+    content="$(<"${file}")"
+  fi
+  [[ ${content} =~ \"${key}\"[[:space:]]*: ]]
+}
+
+# decode_log_data <base64> -- the decoded text, or the input unchanged when it
+# is not valid base64.
+decode_log_data() {
+  local decoded
+  if decoded="$(printf '%s' "$1" | base64 -d 2>/dev/null)"; then
+    printf '%s' "${decoded}"
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# resolve_placeholders <template>
+#
+# Expands %%VAR%% placeholders in a job definition to the value of the matching
+# environment variable (Woodpecker exposes the CI context there), without ever
+# evaluating the result as shell code.
+# ---------------------------------------------------------------------------
+
 resolve_placeholders() {
   local template="$1"
   local resolved_code="$template"
   local placeholder_regex='%%([A-Z0-9_]+)%%'
 
-  # Loop as long as we find placeholders matching the regex
-  while [[ $resolved_code =~ $placeholder_regex ]]; do
-    local placeholder="${BASH_REMATCH[0]}" # Full match, e.g., %%VAR%%
-    local var_name="${BASH_REMATCH[1]}"    # Captured group, e.g., VAR
+  while [[ ${resolved_code} =~ ${placeholder_regex} ]]; do
+    local placeholder="${BASH_REMATCH[0]}" # e.g. %%CI_REPO_NAME%%
+    local var_name="${BASH_REMATCH[1]}"    # e.g. CI_REPO_NAME
 
-    # Safely get the variable's value using indirect expansion.
-    # This avoids the dangerous 'eval' command. Defaults to empty if not set.
+    # Indirect expansion; unset variables resolve to the empty string.
     local var_value="${!var_name:-}"
 
-    # Use Bash's built-in substitution (faster than sed)
-    resolved_code="${resolved_code//"$placeholder"/"$var_value"}"
+    resolved_code="${resolved_code//"${placeholder}"/"${var_value}"}"
   done
 
-  echo "$resolved_code"
+  printf '%s' "${resolved_code}"
 }

@@ -16,9 +16,13 @@
 # along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
 FROM alpine:3.22.1
-ADD src/bash/byggsteg/prelude.bash /bin/
-ADD src/bash/byggsteg/get-token.bash /bin/
-RUN chmod +x /bin/prelude.bash
-RUN chmod +x /bin/get-token.bash
-RUN apk -Uuv add bash curl ca-certificates jq coreutils make grep ncurses
-ENTRYPOINT /bin/get-token.bash
+
+# Only what the step actually needs: bash for the scripts, curl for the HTTP
+# calls and ca-certificates for TLS.  Everything else the scripts use (date,
+# sed, tr, head, base64, sleep, grep, cut) is already in busybox.
+RUN apk add --no-cache bash curl ca-certificates
+
+COPY --chmod=755 src/bash/byggsteg/prelude.bash /bin/
+COPY --chmod=755 src/bash/byggsteg/get-token.bash /bin/
+
+ENTRYPOINT ["/bin/get-token.bash"]

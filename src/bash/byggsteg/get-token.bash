@@ -19,31 +19,56 @@
 
 . "prelude.bash"
 
+# Authenticates to Byggsteg and stores the returned "bewaking" token.
+# Returns non-zero so retry_command can retry on network/HTTP problems.
 get_token_byggsteg() {
-  curl --user-agent "jjba23/byggsteg-woodpecker-get-token" \
-    --fail -s -i "${PLUGIN_BYGGSTEG_URL}/api/v1/login" \
-    -X POST \
-    -H 'content-type: application/x-www-form-urlencoded' \
+  local headers line name
+  local token=""
+
+  headers="$(curl --user-agent "jjba23/byggsteg-woodpecker-get-token" \
+    --fail --silent --show-error --include \
+    --request POST \
+    --header 'content-type: application/x-www-form-urlencoded' \
     --data-urlencode "email=${PLUGIN_BYGGSTEG_EMAIL}" \
-    --data-urlencode "password=${PLUGIN_BYGGSTEG_PASSWORD}" |
-    grep -i "x-bewaking-byggsteg" | cut -d' ' -f2 \
-    >x-bewaking-byggsteg
+    --data-urlencode "password=${PLUGIN_BYGGSTEG_PASSWORD}" \
+    "${PLUGIN_BYGGSTEG_URL}/api/v1/login")" || return 1
+
+  # Header names are case-insensitive -- a server may answer with
+  # `X-Bewaking-Byggsteg:' -- so fold the name before comparing it, and never
+  # the value: the value is the token, and it is case-sensitive.
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    name="${line%%:*}"
+    if [[ "${name,,}" == "x-bewaking-byggsteg" ]]; then
+      token="${line#*:}"
+      token="${token#"${token%%[![:space:]]*}"}" # drop leading blanks
+      break
+    fi
+  done <<<"${headers}"
+
+  if [[ -z "${token}" ]]; then
+    log_error "Byggsteg login answered without an x-bewaking-byggsteg token"
+    return 1
+  fi
+
+  printf '%s' "${token}" >"${BYGGSTEG_TOKEN_FILE}"
 }
 
 # main -- entrypoint function
 #
-#   file-outputs: x-bewaking-token (the Byggsteg auth token to be used)
+#   settings:     PLUGIN_BYGGSTEG_URL, PLUGIN_BYGGSTEG_EMAIL,
+#                 PLUGIN_BYGGSTEG_PASSWORD
+#   file-outputs: x-bewaking-byggsteg (the Byggsteg auth token to be used)
 main() {
-  log_info "Obtaining Byggsteg token..."
-  log_info "POST call to ${PLUGIN_BYGGSTEG_URL}/api/v1/login"
+  : "${PLUGIN_BYGGSTEG_URL:?PLUGIN_BYGGSTEG_URL is required}"
+  : "${PLUGIN_BYGGSTEG_EMAIL:?PLUGIN_BYGGSTEG_EMAIL is required}"
+  : "${PLUGIN_BYGGSTEG_PASSWORD:?PLUGIN_BYGGSTEG_PASSWORD is required}"
+
+  log_info "Requesting Byggsteg token: POST ${PLUGIN_BYGGSTEG_URL}/api/v1/login"
 
   retry_command get_token_byggsteg
 
-  if [[ ! -r "x-bewaking-byggsteg" ]]; then
-    error_exit "file doesn't exist: x-bewaking-byggsteg"
-  else
-    log_info "Byggsteg token fetched successfully"
-  fi
+  log_info "Byggsteg token stored in ${BYGGSTEG_TOKEN_FILE}"
 }
 
 # Run the main function

@@ -1,4 +1,4 @@
-# byggsteg-woodpecker -*- mode: Dockerfile -*-
+# byggsteg-woodpecker -*- mode: yaml -*-
 
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 

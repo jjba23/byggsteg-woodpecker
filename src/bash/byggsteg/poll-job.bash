@@ -19,60 +19,98 @@
 
 . "prelude.bash"
 
-poll_for_job_success() {
-  local poll_count=0
-  local job_succeeded=0
-  local job_failed=0
+# Prints what Byggsteg recorded for the job: the (base64) log-data, or the raw
+# response when there is no log-data to show.
+print_job_output() {
+  local -r file="$1"
+  local log_data
+  log_data="$(json_string log-data "${file}")"
 
-  local -r poll_limit=${PLUGIN_POLL_LIMIT:-4096}
-  local -r poll_interval_seconds=${PLUGIN_POLL_INTERVAL_SECONDS:-8}
-  local -r response_file="byggsteg-log-response.json"
+  # base64 never needs these escapes; drop them in case the encoder wrapped
+  # line breaks, so the payload decodes cleanly.
+  log_data="${log_data//\\n/}"
+  log_data="${log_data//\\r/}"
+  log_data="${log_data//\\t/}"
+
+  if [[ -n "${log_data}" ]]; then
+    printf '%s\n' "$(decode_log_data "${log_data}")"
+  else
+    printf '%s\n' "$(<"${file}")"
+  fi
+}
+
+# poll_for_job_completion <log-id>
+#
+# Stays quiet while the job is still running and prints the job output once on
+# success or failure.  Tune with PLUGIN_POLL_LIMIT (default 4096) and
+# PLUGIN_POLL_INTERVAL_SECONDS (default 8).
+poll_for_job_completion() {
+  local -r log_id="$1"
+  local -r poll_limit="${PLUGIN_POLL_LIMIT:-4096}"
+  local -r interval_seconds="${PLUGIN_POLL_INTERVAL_SECONDS:-8}"
+  local poll_count=0 success failure
 
   while ((poll_count < poll_limit)); do
-    log_info "Polling job status: GET ${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}"
-
-    curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
-      -s "${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${byggsteg_log_id}" \
-      >"${response_file}"
-    from_jq "." "${response_file}"
-
     poll_count=$((poll_count + 1))
 
-    job_succeeded=$(from_jq '.["success"]' "${response_file}")
-
-    job_failed=$(from_jq '.["failure"]' "${response_file}")
-
-    if [ "${job_succeeded}" -eq 1 ]; then
-      from_jq_base64 '.["log-data"]' "${response_file}"
-      log_info "Byggsteg job completed successfully!"
-      exit 0
+    if ! curl --user-agent "jjba23/byggsteg-woodpecker-poll-job" \
+      --fail --silent --show-error \
+      --output "${BYGGSTEG_LOG_RESPONSE_FILE}" \
+      "${PLUGIN_BYGGSTEG_URL}/api/v1/logs/${log_id}"; then
+      log_error "Could not fetch Byggsteg job status (poll ${poll_count}/${poll_limit})"
+      sleep "${interval_seconds}"
+      continue
     fi
 
-    if [ "${job_failed}" -eq 1 ]; then
-      from_jq_base64 '.["log-data"]' "${response_file}"
-      error_exit "Byggsteg job failed!"
+    success="$(json_number success "${BYGGSTEG_LOG_RESPONSE_FILE}")"
+    failure="$(json_number failure "${BYGGSTEG_LOG_RESPONSE_FILE}")"
+
+    if [[ "${success}" == 1 ]]; then
+      print_job_output "${BYGGSTEG_LOG_RESPONSE_FILE}"
+      log_info "Byggsteg job succeeded"
+      return 0
     fi
 
-    log_info "Byggsteg job in progress..."
-    log_info "Polling in ${poll_interval_seconds} seconds"
-    sleep "${poll_interval_seconds}"
+    if [[ "${failure}" == 1 ]]; then
+      print_job_output "${BYGGSTEG_LOG_RESPONSE_FILE}"
+      error_exit "Byggsteg job failed"
+    fi
+
+    # A response carrying none of the three status fields is not a status
+    # response at all -- an error page, a proxy's, a truncated body -- so it is
+    # not something to keep polling: the step fails now, with what came back,
+    # rather than burning the whole poll budget on it.
+    if ! json_has_key success "${BYGGSTEG_LOG_RESPONSE_FILE}" &&
+      ! json_has_key failure "${BYGGSTEG_LOG_RESPONSE_FILE}" &&
+      ! json_has_key in-progress "${BYGGSTEG_LOG_RESPONSE_FILE}"; then
+      print_job_output "${BYGGSTEG_LOG_RESPONSE_FILE}"
+      error_exit "Byggsteg job status response had no success, failure or in-progress field"
+    fi
+
+    sleep "${interval_seconds}"
   done
 
-  error_exit "Reached limit of poll attempts (${poll_limit}), pipeline failed"
+  error_exit "Timed out waiting for Byggsteg job (${poll_limit} polls)"
 }
 
 # main -- entrypoint function
 #
-#   file-inputs: byggsteg-log-id (the log UUID we will poll for status)
+#   file-inputs: byggsteg-log-id (the log id we will poll for status)
+#   settings:    PLUGIN_BYGGSTEG_URL, PLUGIN_POLL_LIMIT,
+#                PLUGIN_POLL_INTERVAL_SECONDS
 main() {
-  if [[ ! -r "byggsteg-log-id" ]]; then
-    error_exit "file doesn't exist: byggsteg-log-id"
-  fi
+  : "${PLUGIN_BYGGSTEG_URL:?PLUGIN_BYGGSTEG_URL is required}"
 
-  byggsteg_log_id=$(<byggsteg-log-id)
+  [[ -r "${BYGGSTEG_LOG_ID_FILE}" ]] ||
+    error_exit "missing log-id file: ${BYGGSTEG_LOG_ID_FILE} (run the submit-job step first)"
 
-  # start polling for job status until success or limit reached
-  poll_for_job_success
+  local log_id
+  log_id="$(<"${BYGGSTEG_LOG_ID_FILE}")"
+  [[ -n "${log_id}" ]] || error_exit "empty log-id in ${BYGGSTEG_LOG_ID_FILE}"
+
+  log_info "Waiting for Byggsteg job ${log_id}"
+
+  poll_for_job_completion "${log_id}"
 }
 
 # Run the main function
