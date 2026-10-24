@@ -26,8 +26,11 @@
 
 (define-module (maak)
   #:use-module (maak maak)
-  #:use-module (ice-9 popen)
-  #:use-module (ice-9 textual-ports)
+  ;; The git and container helpers are imported under prefixes: the tasks below
+  ;; are named the way maak exposes them on the command line, and a task may not
+  ;; shadow the helper it calls.  `srfi srfi-13' is what trims what git prints.
+  #:use-module ((maak git) #:prefix git:)
+  #:use-module ((maak container) #:prefix ct:)
   #:use-module (srfi srfi-13)
   #:declarative? #t
   #:export (default build push lint fmt test sizes clean))
@@ -51,15 +54,26 @@
 
 ;; The image tag: VERSION when it is set, otherwise the exact git tag we are
 ;; standing on, or the short commit hash away from a tag.
+;;
+;; The two questions are asked even in a dry run -- a version is a value a name
+;; is built from, not a command a task performs -- so the dry run is turned off
+;; around them, as it was when this read git through a pipe.  `git tag
+;; --points-at HEAD' answers what `git describe --exact-match --tags' answers
+;; without the `fatal:' line git writes when no tag matches.
+(define (git-value . arguments)
+  "What git printed for ARGUMENTS, read even in a dry run."
+  (parameterize ((dry-run? #f))
+    (string-trim-both
+     (git:git-output arguments #:allow-failure? #t))))
+
 (define version
   (let ((named (getenv "VERSION")))
     (if (and named (positive? (string-length named)))
         named
-        (let* ((port (open-input-pipe
-                      "git describe --exact-match --tags 2>/dev/null || git rev-parse --short HEAD"))
-               (tag (get-string-all port)))
-          (close-pipe port)
-          (string-trim-both tag)))))
+        (let ((tag (git-value "tag" "--points-at" "HEAD")))
+          (if (string=? tag "")
+              (git-value "rev-parse" "--short" "HEAD")
+              (car (string-split tag #\newline)))))))
 
 ;; ====== Helpers ======
 
@@ -71,39 +85,60 @@
 
 (define (default)
   "Default task: list the available tasks."
-  ($ '("maak --list")))
+  (run (list "maak" "--list")))
 
 (define (build . wanted)
   "Build the step images (all three when none are named)."
   (for-each (lambda (step)
-              ($ (list (~ "podman build -f ~a.containerfile -t ~a ."
-                          step (image step)))))
+              (ct:container-build "."
+                                  #:file (~ "~a.containerfile" step)
+                                  #:tag (image step)))
             (if (null? wanted) steps wanted)))
 
 (define (push . wanted)
   "Build and then push the step images (all three when none are named)."
   (apply build wanted)
   (for-each (lambda (step)
-              ($ (list (~ "podman push ~a" (image step)))))
+              (ct:container-push (image step)))
             (if (null? wanted) steps wanted)))
 
 (define (lint)
   "Static analysis of the step scripts and the test runner, with shellcheck."
-  ($ '("shellcheck -x -P src/bash/byggsteg src/bash/byggsteg/*.bash test/run-tests.bash")))
+  ;; The step scripts are named by a glob, so the shell is asked for the names:
+  ;; `#:expand? #t' is what turns `*.bash' into the files in that directory.
+  (run (list "shellcheck" "-x" "-P" "src/bash/byggsteg"
+             "src/bash/byggsteg/*.bash" "test/run-tests.bash")
+       #:expand? #t))
 
 (define (fmt)
   "Format the step scripts and the test runner, with shfmt."
-  ($ '("shfmt -i 2 -ci -w src/bash/byggsteg/*.bash test/run-tests.bash")))
+  (run (list "shfmt" "-i" "2" "-ci" "-w"
+             "src/bash/byggsteg/*.bash" "test/run-tests.bash")
+       #:expand? #t))
 
 (define (test)
   "Run the end-to-end tests against a mock Byggsteg server."
-  ($ '("bash test/run-tests.bash")))
+  (run (list "bash" "test/run-tests.bash")))
 
 (define (sizes)
   "Report the size of each built step image."
-  ($ (list (~ "podman images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep byggsteg-woodpecker || true"))))
+  ;; What `podman images --format ... | grep byggsteg-woodpecker || true' did,
+  ;; with the reading and the matching in Scheme: the listing is asked for once
+  ;; and each line is kept when it names one of these images.  A machine with no
+  ;; such image lists nothing, which is not a failure.
+  (for-each (lambda (line)
+              (when (string-contains line image-prefix)
+                (log-info "~a" line)))
+            (string-split (ct:container-output
+                           (list "images" "--format"
+                                 "{{.Repository}}:{{.Tag}} {{.Size}}")
+                           #:allow-failure? #t)
+                          #\newline)))
 
 (define (clean)
   "Remove the locally built step images."
-  ($ (list (~ "podman rmi ~a 2>/dev/null || true"
-              (string-join (map image steps) " ")))))
+  ;; `podman rmi', not `container-rm': that helper runs `rm', which removes
+  ;; containers and leaves the images this task is named for.  An image that was
+  ;; never built is not a failure, which is what `|| true' said.
+  (ct:container (append (list "rmi") (map image steps))
+                #:allow-failure? #t))
