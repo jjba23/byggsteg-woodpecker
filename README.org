@@ -1,4 +1,4 @@
-#+title: Byggsteg Woodpecker Plugins
+#+title: Byggsteg Woodpecker
 #+subtitle: bridge Woodpecker CI to Byggsteg pipelines
 #+author: Josep Bigorra
 #+email: jjbigorra@gmail.com
@@ -10,10 +10,10 @@
 
 /bridge Woodpecker CI to Byggsteg pipelines/
 
-Integrate [[https://codeberg.org/jjba23/byggsteg][Byggsteg]] pipelines easily into your [[https://woodpecker-ci.org/][Woodpecker CI]] setup (for example at Codeberg), with three tiny Alpine-based pipeline steps.
+Integrate [[https://codeberg.org/jjba23/byggsteg][Byggsteg]] pipelines into your [[https://woodpecker-ci.org/][Woodpecker CI]] setup (for example at Codeberg): one small Alpine image that signs in to Byggsteg, hands it a job, and faithfully reports the job's outcome back to Woodpecker.
 
 - 📖 *Byggsteg:* [[https://codeberg.org/jjba23/byggsteg][codeberg.org/jjba23/byggsteg]]
-- 🐳 *Published images:* [[https://hub.docker.com/repositories/jjba23][hub.docker.com/u/jjba23]]
+- 🐳 *Published image:* [[https://hub.docker.com/repository/docker/jjba23/byggsteg-woodpecker][hub.docker.com/r/jjba23/byggsteg-woodpecker]]
 - 💾 *Read the source (and send patches):* [[https://codeberg.org/jjba23/byggsteg-woodpecker][codeberg.org/jjba23/byggsteg-woodpecker]]
 - 🛠️ *Tasks are run with:* [[https://codeberg.org/jjba23/maak][Maak]]
 
@@ -26,54 +26,69 @@ If you like my work, please support me by [[https://bmc.link/jjbigorra][buying m
 * What this is
 
 Woodpecker runs a pipeline as a series of container steps. Byggsteg runs CI/CD
-jobs described as Lisp (Scheme) thunks. This repository is the bridge between
-the two: three small pipeline steps that let a Woodpecker pipeline authenticate
-to Byggsteg, hand it a job, and faithfully report the job's outcome back to
-Woodpecker -- so a Woodpecker build goes green or red according to what Byggsteg
-actually did.
+jobs described as Lisp (Scheme) thunks. This project is the bridge between the
+two: one image whose script signs in to Byggsteg, hands it a job, and follows
+the job's log until it has finished -- so a Woodpecker build goes green or red
+according to what Byggsteg actually did, and the job's output shows up in the
+Woodpecker log as it is.
 
-The steps are plain Bash on top of Alpine Linux. They pull in only ~bash~,
-~curl~ and ~ca-certificates~ (everything else they use is already in busybox),
-each image lands around 16 MB, and they stay deliberately small so CI pulls and
-job startup stay fast.
+It speaks version 2 of the Byggsteg JSON API, ~/api/v2~: the version that says
+what a run's status and output are as data (a run is ~succeeded~, ~failed~,
+~running~ or ~queued~, and the output arrives as text) rather than as fields to
+be guessed at. The older ~/api/v1~ is not called at all.
 
-** The three steps
+The image is plain Bash on top of Alpine Linux. It pulls in only ~bash~,
+~curl~ and ~ca-certificates~ (everything else it uses is already in busybox),
+lands around 16.6 MB, and stays deliberately small so CI pulls and job startup
+stay fast.
 
-|------------------------------------+---------------------------------------------------------|
-| *Image*                            | *Role*                                                   |
-|------------------------------------+---------------------------------------------------------|
-| ~byggsteg-woodpecker-get-token~    | Authenticate to Byggsteg and store the session token.    |
-| ~byggsteg-woodpecker-submit-job~   | Submit a Lisp job definition, get back its log id.       |
-| ~byggsteg-woodpecker-poll-job~     | Poll until the job finishes; pass or fail the build.     |
-|------------------------------------+---------------------------------------------------------|
+** One image, three steps
+
+A pipeline needs three things done, in order, each in its own step so a red
+build points at the thing that failed. They are three arguments to the one
+script:
+
+|--------------------------+-------------------------------------------------------|
+| *Step*                   | *What it does*                                         |
+|--------------------------+-------------------------------------------------------|
+| ~get-token~              | Signs in to Byggsteg, stores the session token.        |
+| ~submit-job~             | Submits a Lisp job definition, stores its log id.      |
+| ~poll-job~               | Follows that log, prints the output, passes or fails.  |
+|--------------------------+-------------------------------------------------------|
+
+There is also ~all~, which runs the three in order inside a single step, and
+~help~, which prints the usage the next time you cannot remember a setting
+name.
 
 ------------------
 
 * How it works
 
-The three steps run in order and talk to each other through files in Woodpecker's
-shared workspace (the working directory every step runs in):
+The steps talk to each other through files in Woodpecker's shared workspace
+(the working directory every step runs in):
 
 #+begin_example
-            get-token                 submit-job                poll-job
-   ┌───────────────────┐    ┌────────────────────────┐   ┌────────────────────┐
-   │ POST /api/v1/login│    │ POST /api/v1/jobs/...   │   │ GET /api/v1/logs/… │
-   │  ──> token        │    │  ──> log-id             │   │  … until done      │
-   └─────────┬─────────┘    └───────────┬────────────┘   └─────────┬──────────┘
-             │                          │                          │
-     x-bewaking-byggsteg ──────> byggsteg-log-id ────────> (status + output)
+            get-token                  submit-job                  poll-job
+   ┌───────────────────────┐   ┌────────────────────────┐   ┌─────────────────────┐
+   │ POST /api/v2/login    │   │ POST /api/v2/jobs      │   │ GET /api/v2/logs/…  │
+   │  ──> token            │   │  ──> log-id            │   │  … until it is done │
+   └──────────┬────────────┘   └───────────┬────────────┘   └──────────┬──────────┘
+              │                            │                           │
+      x-bewaking-byggsteg ───────> byggsteg-log-id ───────> (status + output)
 #+end_example
 
 The files exchanged between steps are:
 
-|-------------------------------+-----------------------------------------------------------|
-| *File*                        | *Written by / read by*                                    |
-|-------------------------------+-----------------------------------------------------------|
-| ~x-bewaking-byggsteg~         | written by get-token, read by submit-job                  |
-| ~byggsteg-log-id~             | written by submit-job, read by poll-job                   |
-| ~byggsteg-submit-job-response.json~ | written by submit-job (the submit response body)    |
-| ~byggsteg-log-response.json~  | written by poll-job (the last status response body)       |
-|-------------------------------+-----------------------------------------------------------|
+|--------------------------------------+---------------------------------------------|
+| *File*                               | *Written by / read by*                      |
+|--------------------------------------+---------------------------------------------|
+| ~x-bewaking-byggsteg~                | written by get-token, read by submit-job    |
+| ~byggsteg-log-id~                    | written by submit-job, read by poll-job     |
+| ~byggsteg-login-response.json~       | written by get-token (the sign-in answer)   |
+| ~byggsteg-submit-job-response.json~  | written by submit-job (the queued run)      |
+| ~byggsteg-log-response.json~         | written by poll-job (the last log answer)   |
+| ~byggsteg-job-output.txt~            | written by poll-job (the job's output)      |
+|--------------------------------------+---------------------------------------------|
 
 ** What you see in the logs
 
@@ -82,9 +97,12 @@ The steps are deliberately quiet. Each prints a line or two as it works, and:
 - *on success or failure, poll-job prints the job's output* (the log Byggsteg
   recorded for it) exactly once -- nothing is dumped while the job is still
   running;
-- *on success, submit-job prints the JSON Byggsteg answered with* (the ~log-id~
-  and title);
-- every error goes to stderr, in red, prefixed with a timestamp.
+- *on failure or timeout, it prints that output too*, followed by the reason;
+- *on success, submit-job names the log id and the run id* Byggsteg answered
+  with (the whole answer is kept in the workspace, and printed with
+  ~BYGGSTEG_DEBUG=1~);
+- every warning and every error goes to stderr, in colour, prefixed with a
+  level and a UTC timestamp.
 
 So a green build shows you the job's output and little else, and a red build
 shows you the same output plus the reason it failed -- no per-poll noise.
@@ -95,10 +113,8 @@ shows you the same output plus the reason it failed -- no per-poll noise.
 
 #+begin_src yaml
 variables:
-  - &submit_job_image 'docker.io/jjba23/byggsteg-woodpecker-submit-job:v0.1.34'
-  - &poll_job_image 'docker.io/jjba23/byggsteg-woodpecker-poll-job:v0.1.34'
-  - &get_token_image 'docker.io/jjba23/byggsteg-woodpecker-get-token:v0.1.34'
-  - &jointhefreeworld_byggsteg_url 'https://byggsteg.jointhefreeworld.org'
+  - &byggsteg_image 'docker.io/jjba23/byggsteg-woodpecker:v0.3.0'
+  - &byggsteg_url 'https://byggsteg.jointhefreeworld.org'
   - &main_branch 'trunk'
 
 clone:
@@ -110,7 +126,9 @@ clone:
 steps:
   get-byggsteg-token:
     name: "🔒 Get token @ Byggsteg"
-    image: *get_token_image
+    image: *byggsteg_image
+    commands:
+      - /bin/byggsteg-woodpecker get-token
     when:
       - event: [ push ]
         branch: [ *main_branch ]
@@ -124,12 +142,14 @@ steps:
 
   submit-byggsteg-job:
     name: "💼 Submit job @ Byggsteg"
-    image: *submit_job_image
+    image: *byggsteg_image
+    commands:
+      - /bin/byggsteg-woodpecker submit-job
     when:
       - event: [ push ]
         branch: [ *main_branch ]
     settings:
-      BYGGSTEG_URL: *jointhefreeworld_byggsteg_url
+      BYGGSTEG_URL: *byggsteg_url
       BYGGSTEG_JOB_CODE: |
         (lambda()
           `((task . ("make-test" "pull-and-deploy"))
@@ -139,81 +159,191 @@ steps:
 
   poll-byggsteg-job:
     name: "🔄 Poll job status @ Byggsteg"
-    image: *poll_job_image
+    image: *byggsteg_image
+    commands:
+      - /bin/byggsteg-woodpecker poll-job
     when:
       - event: [ push ]
         branch: [ *main_branch ]
     settings:
-      BYGGSTEG_URL: *jointhefreeworld_byggsteg_url
+      BYGGSTEG_URL: *byggsteg_url
+#+end_src
+
+~commands~ replaces the image's entrypoint, which is how one image runs three
+different steps. If you would rather not write ~commands~, the same steps can be
+named as a setting instead:
+
+#+begin_src yaml
+  poll-byggsteg-job:
+    image: *byggsteg_image
+    settings:
+      BYGGSTEG_STEP: poll-job
+      BYGGSTEG_URL: *byggsteg_url
 #+end_src
 
 Woodpecker turns each ~settings~ key into a ~PLUGIN_*~ environment variable that
-the step reads (so ~BYGGSTEG_URL~ is seen by the script as
-~PLUGIN_BYGGSTEG_URL~). The step scripts also have access to the whole Woodpecker
-build context, which is what makes the ~%%CI_*%%~ placeholders in
+the script reads (so ~BYGGSTEG_URL~ is seen as ~PLUGIN_BYGGSTEG_URL~, and
+~POLL_LIMIT~ as ~PLUGIN_POLL_LIMIT~). The script also has access to the whole
+Woodpecker build context, which is what makes the ~%%CI_*%%~ placeholders in
 ~BYGGSTEG_JOB_CODE~ work: before submitting, submit-job replaces every
-~%%NAME%%~ with the value of the environment variable ~NAME~.
+~%%NAME%%~ with the value of the environment variable ~NAME~, without ever
+evaluating the result as shell code.
+
+** One step instead of three
+
+If you would rather have the whole bridge in one step (or run it by hand on a
+machine), ~all~ does the sign-in, the submit and the poll in that order:
+
+#+begin_src yaml
+  byggsteg:
+    name: "🧱 Byggsteg"
+    image: *byggsteg_image
+    commands:
+      - /bin/byggsteg-woodpecker all
+    settings:
+      BYGGSTEG_URL: *byggsteg_url
+      BYGGSTEG_EMAIL:
+        from_secret: BYGGSTEG_EMAIL
+      BYGGSTEG_PASSWORD:
+        from_secret: BYGGSTEG_PASSWORD
+      BYGGSTEG_JOB_CODE: |
+        (lambda() `((task . ("make-test")) (project . "%%CI_REPO_NAME%%")))
+#+end_src
 
 ------------------
 
 * Settings reference
 
-Settings are the Woodpecker ~settings~ keys; each becomes a ~PLUGIN_~-prefixed
-environment variable for the step.
+Settings are Woodpecker ~settings~ keys; each becomes a ~PLUGIN_~-prefixed
+environment variable for the script. ~BYGGSTEG_URL~ is required by every step,
+and must be an ~http://~ or ~https://~ address (a value without a scheme is
+refused before anything is attempted).
 
-** byggsteg-woodpecker-get-token
+** get-token
 
-|----------------------------+-----------+------------------------------------------------|
-| *Setting*                  | *Default* | *Meaning*                                      |
-|----------------------------+-----------+------------------------------------------------|
-| ~BYGGSTEG_URL~             | --        | Base URL of your Byggsteg instance.            |
-| ~BYGGSTEG_EMAIL~           | --        | Email of the Byggsteg account.                 |
-| ~BYGGSTEG_PASSWORD~        | --        | Password/key of that account.                  |
-|----------------------------+-----------+------------------------------------------------|
+|------------------------+-----------+-------------------------------------------------|
+| *Setting*              | *Default* | *Meaning*                                       |
+|------------------------+-----------+-------------------------------------------------|
+| ~BYGGSTEG_URL~         | --        | Base URL of your Byggsteg instance.             |
+| ~BYGGSTEG_EMAIL~       | --        | Email of the Byggsteg account.                  |
+| ~BYGGSTEG_PASSWORD~    | --        | Password/key of that account.                   |
+|------------------------+-----------+-------------------------------------------------|
 
-It ~POST~s to ~/api/v1/login~ and stores the ~x-bewaking-byggsteg~ token the
-response carries in the file ~x-bewaking-byggsteg~ for later steps.
+It ~POST~s to ~/api/v2/login~ (form-encoded, which the API accepts beside JSON)
+and stores the token the answer carries -- from the ~x-bewaking-byggsteg~
+response header, or from the ~token~ field of the body if the deployment only
+sends it there -- in the file ~x-bewaking-byggsteg~.
 
-** byggsteg-woodpecker-submit-job
+With ~BYGGSTEG_DEBUG=1~ it also logs which account it signed in as and when the
+token stops being read, which is what a later step's 401 is usually about.
 
-|--------------------------+-----------+--------------------------------------------------|
-| *Setting*                | *Default* | *Meaning*                                        |
-|--------------------------+-----------+--------------------------------------------------|
-| ~BYGGSTEG_URL~           | --        | Base URL of your Byggsteg instance.              |
+** submit-job
+
+|--------------------------+-----------+-------------------------------------------------|
+| *Setting*                | *Default* | *Meaning*                                       |
+|--------------------------+-----------+-------------------------------------------------|
+| ~BYGGSTEG_URL~           | --        | Base URL of your Byggsteg instance.             |
 | ~BYGGSTEG_JOB_CODE~      | --        | The Lisp job definition (see the example above). |
-|--------------------------+-----------+--------------------------------------------------|
+|--------------------------+-----------+-------------------------------------------------|
 
 It reads the token file, expands the ~%%...%%~ placeholders in the job code,
-~POST~s to ~/api/v1/jobs/manage/submit~ and stores the returned ~log-id~ in the
-file ~byggsteg-log-id~.
+~POST~s to ~/api/v2/jobs~ and stores the ~log-id~ of the queued run in the file
+~byggsteg-log-id~. The API answers ~201~ with the run and the log its output
+will arrive in; a ~log-id~ that is missing or ~null~ -- a deployment that queued
+nothing, a proxy answering with a page instead -- fails the step with the answer
+printed rather than passing on a pipeline nobody can follow.
 
-** byggsteg-woodpecker-poll-job
+** poll-job
 
-|---------------------------------+-----------+--------------------------------------------|
-| *Setting*                       | *Default* | *Meaning*                                  |
-|---------------------------------+-----------+--------------------------------------------|
-| ~BYGGSTEG_URL~                  | --        | Base URL of your Byggsteg instance.        |
-| ~POLL_LIMIT~                    | ~4096~    | Maximum number of status polls before the  |
-|                                 |           | step gives up and fails the build.         |
-| ~POLL_INTERVAL_SECONDS~         | ~8~       | Seconds to wait between polls.             |
-|---------------------------------+-----------+--------------------------------------------|
+|---------------------------------+-----------+-------------------------------------------|
+| *Setting*                       | *Default* | *Meaning*                                 |
+|---------------------------------+-----------+-------------------------------------------|
+| ~BYGGSTEG_URL~                  | --        | Base URL of your Byggsteg instance.       |
+| ~POLL_LIMIT~                    | ~4096~    | Maximum number of status polls before the |
+|                                 |           | step gives up and fails the build.        |
+| ~POLL_INTERVAL_SECONDS~         | ~8~       | Seconds to wait between polls.            |
+| ~POLL_VIEW~                     | ~rendered~| ~rendered~ reads the output the way a     |
+|                                 |           | terminal would have left it; ~raw~ is what |
+|                                 |           | the command wrote, control characters and |
+|                                 |           | all.                                      |
+|---------------------------------+-----------+-------------------------------------------|
 
-It reads the log id, then ~GET~s ~/api/v1/logs/<log-id>~ until Byggsteg reports
-~success~ or ~failure~. ~success~ exits 0, ~failure~ exits 1, and reaching the
-poll limit exits 1 as a timeout.
+It ~GET~s ~/api/v2/logs/<log-id>~ until the run's status is ~succeeded~ or
+~failed~: ~succeeded~ exits 0, ~failed~ exits 1, and reaching the poll limit
+exits 1 as a timeout (after printing the output read so far).
 
-** Advanced: retry tuning
+The status reading is incremental: after the first answer, each poll sends the
+length of the output it already has as ~have~, and the deployment answers that
+nothing has changed instead of sending the text again. A job that writes a lot
+is therefore not downloaded again on every poll.
 
-The token and submit steps retry transient failures (network problems, HTTP
-errors). Fine-tune the retries with plain environment variables if the defaults
-are too impatient or too eager:
+------------------
 
-|--------------------------------+-----------+----------------------------------------|
-| *Variable*                     | *Default* | *Meaning*                              |
-|--------------------------------+-----------+----------------------------------------|
-| ~BYGGSTEG_RETRY_ATTEMPTS~      | ~8~       | Total attempts before the step fails.  |
-| ~BYGGSTEG_RETRY_INTERVAL~      | ~4~       | Seconds to wait before the next retry. |
-|--------------------------------+-----------+----------------------------------------|
+* Logging and error handling
+
+** What a step says
+
+|-------------------+--------+--------------------------------------------------------|
+| *Level*           | *Where*| *When*                                                  |
+|-------------------+--------+--------------------------------------------------------|
+| ~INFO~            | stdout | what the step is about to do, and what came of it      |
+| ~WARN~            | stderr | a poll that failed but will be tried again             |
+| ~ERROR~           | stderr | a refusal, a failure, or an answer that cannot be used |
+| ~DEBUG~           | stdout | only with ~BYGGSTEG_DEBUG=1~: every request and answer |
+|-------------------+--------+--------------------------------------------------------|
+
+Every line carries a UTC timestamp, so a CI log can be cut down to the ones that
+matter. Set ~BYGGSTEG_DEBUG=1~ (or ~true~, ~yes~, ~on~) on one build to see the
+requests, the statuses, the job code that was sent and the answers that came
+back.
+
+** What is retried, and what is not
+
+A refusal that asking again cannot change is not retried, so a red build says
+why at once instead of after the backoff:
+
+|-------------------------------+------------------------------------------------------|
+| *Answer*                      | *What happens*                                        |
+|-------------------------------+------------------------------------------------------|
+| 2xx                           | the step goes on                                      |
+| 5xx, 408, 425, 429            | retried, up to ~BYGGSTEG_RETRY_ATTEMPTS~ times        |
+| network failure, DNS, timeout | retried, the same way                                 |
+| other 4xx (400, 401, 403, 404)| not retried: the step fails now                       |
+| 2xx that cannot be used       | not retried: the answer will be the same answer       |
+|-------------------------------+------------------------------------------------------|
+
+An "answer that cannot be used" is a 200 or 201 that carries none of the fields
+the step needs -- no token, a body that is not JSON, JSON without a log-id or
+without a run status. Those fail the step with the answer printed, because a
+pipeline silently going green on nothing is worse than one going red.
+
+Byggsteg answers its refusals with ~{"error": "..."}~, and that sentence is
+printed instead of the status code alone, so a 403 reads as "the token does not
+hold byggsteg:job-create" rather than as a number to look up.
+
+** Advanced: retry and timeout tuning
+
+Fine-tune the calls with plain environment variables if the defaults are too
+impatient or too eager:
+
+|--------------------------------+-----------+--------------------------------------|
+| *Variable*                     | *Default* | *Meaning*                            |
+|--------------------------------+-----------+--------------------------------------|
+| ~BYGGSTEG_RETRY_ATTEMPTS~      | ~8~       | Attempts before the step gives up.   |
+| ~BYGGSTEG_RETRY_INTERVAL~      | ~4~       | Seconds to wait before the next try. |
+| ~BYGGSTEG_CONNECT_TIMEOUT~     | ~10~      | Seconds to wait for a connection.    |
+| ~BYGGSTEG_REQUEST_TIMEOUT~     | ~120~     | Seconds a whole request may take.    |
+| ~BYGGSTEG_DEBUG~               | --        | Non-empty logs every request.        |
+|--------------------------------+-----------+--------------------------------------|
+
+A value that is not a whole number above zero fails the step with a message
+before anything is attempted.
+
+** Exit codes
+
+~0~ when the step did its job (and, for ~poll-job~, when the job succeeded);
+~1~ for every other ending -- a failure, a timeout, a setting that is missing or
+malformed, and a job that failed.
 
 ------------------
 
@@ -223,17 +353,16 @@ The project's tasks are declared in ~maak.scm~ and run with
 [[https://codeberg.org/jjba23/maak][Maak]]; ~maak --list~ shows them all:
 
 #+begin_src sh
-maak build              # build the three step images
-maak push               # build (if needed) and push the three step images
-maak build get-token    # ...or a single step
-maak lint               # shellcheck the step scripts and the test runner
+maak build              # build the step image
+maak push               # build (if needed) and push the step image
+maak lint               # shellcheck the script and the test runner
 maak fmt                # format them with shfmt
 maak test               # run the end-to-end tests
-maak sizes              # report the size of each built image
-maak clean              # remove the locally built images
+maak sizes              # report the size of the built image
+maak clean              # remove the locally built image
 #+end_src
 
-The images are built with ~podman~ and published to DockerHub. The image tag is
+The image is built with ~podman~ and published to DockerHub. The image tag is
 the exact git tag you are standing on (or the short commit hash, away from a
 tag); set ~VERSION~ to name it yourself. Override the registry or organisation
 for your own builds with ~IMAGE_REGISTRY~ and ~IMAGE_ORG~:
@@ -244,73 +373,117 @@ IMAGE_REGISTRY=ghcr.io IMAGE_ORG=yourname maak build push
 
 ** Linting and testing
 
-~maak lint~ runs [[https://www.shellcheck.net/][shellcheck]] over the step scripts and the test runner, and
-~maak fmt~ formats them with [[https://github.com/mvdan/sh][shfmt]].
+~maak lint~ runs [[https://www.shellcheck.net/][shellcheck]] over the script and the test runner, and ~maak fmt~
+formats them with [[https://github.com/mvdan/sh][shfmt]].
 
 ~maak test~ runs the end-to-end suite in ~test/~. It starts a small mock of the
 Byggsteg API ([[file:test/mock-byggsteg.scm][test/mock-byggsteg.scm]], written in Guile -- the language Maak
-already needs) and points the step scripts at it, so the whole suite needs
-nothing but ~bash~, ~curl~ and ~guile~: no image build and no Byggsteg instance.
-It covers the happy paths and the ways they go wrong, including the errors worth
-having a mock for:
+already needs) and points the script at it, so the whole suite needs nothing but
+~bash~, ~curl~ and ~guile~: no image build and no Byggsteg instance. It covers
+the happy paths and the ways they go wrong:
 
 |--------------------------+--------------------------------------------------------|
 | *Scenario*               | *What it checks*                                         |
 |--------------------------+--------------------------------------------------------|
-| ~success~                | token stored, job submitted, job passes                   |
-| ~failure~                | a job that fails fails the step (exit 1)                  |
-| ~timeout~                | a job that never finishes times out, with no poll noise   |
-| ~login-error~            | a login answering 500 exhausts the retries                |
-| ~submit-error~           | a submit answering 500 exhausts the retries               |
-| ~login-no-token~         | a login answering 200 with no token fails                 |
-| ~submit-not-json~        | a submit answering with a non-JSON body fails             |
-| ~submit-no-log-id~       | a submit answer without a log-id fails                    |
-| ~status-not-json~        | an unrecognizable status fails at once, not at the limit  |
+| ~success~                | token stored, job submitted, job passes, output printed  |
+| ~success-quiet~          | the output is printed even when the last answer left it  |
+|                          | out because nothing had changed                          |
+| ~failure~                | a job that fails fails the step (exit 1)                 |
+| ~timeout~                | a job that never finishes times out, with no poll noise  |
+| ~login-unauthorized~     | a wrong password fails at once, not after the retries    |
+| ~login-error~            | a login answering 500 exhausts the retries               |
+| ~login-no-token~         | a login answering 200 with no token fails                |
+| ~submit-forbidden~       | a token without byggsteg:job-create fails at once        |
+| ~submit-error~           | a submit answering 500 exhausts the retries              |
+| ~submit-not-json~        | a submit answering with a non-JSON body fails            |
+| ~submit-no-log-id~       | a submit answer without a log to follow fails            |
+| ~status-not-json~        | an unrecognizable status fails at once, not at the limit |
+| ~log-not-found~          | a log that is not there fails at once, with the answer   |
 |--------------------------+--------------------------------------------------------|
 
-The last four are answers that are wrong without being errors: a 200 that
-carries no token, a body that is not the JSON the step expects, JSON without
-the field it needs.  The steps must fail on those rather than pass on nothing --
-and the tests pin that down, checking the exit code and that an unrecognizable
-status fails on the first poll instead of running out the clock.
+The answers that are wrong without being errors -- a 200 that carries no token,
+a body that is not the JSON the step expects, JSON without the field it needs --
+are the ones worth having a mock for: the steps must fail on those rather than
+pass on nothing, and the tests pin that down, checking the exit code, the
+message, and that an answer which cannot be used fails on the first attempt
+instead of running out the clock.
 
 It also checks the errors that are the operator's to fix: a step run out of
-order (submit without a token, poll without a log id) and a step missing its
-required settings.
+order (submit without a token, poll without a log id), a step missing its
+required settings, an address without a scheme -- and that nothing at all is
+asked of ~/api/v1~.
 
-** How big the images are
+** How big the image is
 
-Each of the three images is Alpine with one short list of packages and the two
-scripts it runs:
+One Alpine image with one short list of packages and one script:
 
-- *packages:* ~bash curl ca-certificates~ -- three, down from eight (~jq~,
-  ~coreutils~, ~make~, ~grep~ and ~ncurses~ used to be installed too);
-- *size:* about ~16.5 MB~ per image on disk, down from about ~30.7 MB~;
-- *files:* the shared ~prelude.bash~ and the step's own script.
+- *packages:* ~bash curl ca-certificates~ -- three, against small Alpine;
+- *size:* about ~16.6 MB~ on disk for the whole bridge, where the three images
+  of v0.2.x were ~16.5 MB~ each;
+- *files:* one script, ~/bin/byggsteg-woodpecker~.
 
-Everything else the scripts reach for is already in busybox (~date~, ~sed~,
-~tr~, ~head~, ~base64~, ~sleep~). There is deliberately no ~jq~: the Byggsteg
-responses are small, flat JSON objects, so the few fields the steps read are
-pulled out with bash pattern matching, and neither ~jq~ nor the ~oniguruma~ it
-drags along has to be downloaded at the start of every pipeline step. ~maak
-sizes~ prints the measured size of each image you have built.
+Everything else the script reaches for is already in busybox (~date~, ~head~,
+~sleep~, ~mktemp~). There is deliberately no ~jq~: the Byggsteg answers are
+small JSON objects, so the few fields the steps read are pulled out with bash
+pattern matching -- quotes, newlines and ~\uXXXX~ escapes included -- and
+neither ~jq~ nor the ~oniguruma~ it drags along has to be downloaded at the start
+of every pipeline step. ~maak sizes~ prints the measured size of the image you
+have built.
+
+------------------
+
+* Upgrading from v0.2.x
+
+v0.3.0 is one image where v0.2.x had three, and it speaks ~/api/v2~ of Byggsteg.
+The three steps are still three steps; they are named on the command line now:
+
+#+begin_src diff
+-  - &submit_job_image 'docker.io/jjba23/byggsteg-woodpecker-submit-job:v0.2.1'
+-  - &poll_job_image 'docker.io/jjba23/byggsteg-woodpecker-poll-job:v0.2.1'
+-  - &get_token_image 'docker.io/jjba23/byggsteg-woodpecker-get-token:v0.2.1'
++  - &byggsteg_image 'docker.io/jjba23/byggsteg-woodpecker:v0.3.0'
+
+   get-byggsteg-token:
+-    image: *get_token_image
++    image: *byggsteg_image
++    commands:
++      - /bin/byggsteg-woodpecker get-token
+#+end_src
+
+The settings are unchanged, and so is the interface between the steps: the token
+still goes in ~x-bewaking-byggsteg~ and the log id in ~byggsteg-log-id~. What
+changed is the API the steps call, how a failure is reported, and that a
+refusal which cannot change is no longer retried.
 
 ------------------
 
 * Troubleshooting
 
-- *"missing token file: x-bewaking-byggsteg"* -- the submit step ran without the
-  get-token step before it (or in a different workspace). Keep the three steps
-  in the same pipeline, in order.
-- *"missing log-id file: byggsteg-log-id"* -- the poll step ran without a
-  successful submit step before it.
-- *Login fails with a 401* -- check ~BYGGSTEG_EMAIL~ / ~BYGGSTEG_PASSWORD~.
-  The get-token step retries and then fails; the HTTP error is printed.
+- *"missing x-bewaking-byggsteg (run the get-token step first)"* -- the submit
+  step ran without the get-token step before it (or in a different workspace).
+  Keep the steps in the same pipeline, in order.
+- *"missing byggsteg-log-id (run the submit-job step first)"* -- the poll step
+  ran without a successful submit step before it.
+- *"HTTP 401: the email and the password do not match an account"* -- check
+  ~BYGGSTEG_EMAIL~ / ~BYGGSTEG_PASSWORD~. This is not retried.
+- *"HTTP 403: the token does not hold byggsteg:job-create"* -- the account is
+  real but may not submit runs; grant it the permission in Byggsteg.
+- *"Signed in, but the answer carried no token"* -- something between you and
+  Byggsteg (a proxy, a captive portal) is answering instead of Byggsteg; the
+  answer it sent is printed above the message.
 - *"Timed out waiting for Byggsteg job"* -- the job ran longer than
-  ~POLL_LIMIT × POLL_INTERVAL_SECONDS~. Raise ~POLL_LIMIT~ or the interval.
+  ~POLL_LIMIT × POLL_INTERVAL_SECONDS~. Raise ~POLL_LIMIT~ or the interval; the
+  output read so far is printed either way.
+- *"Byggsteg answered HTTP 200 without a run status"* -- the log endpoint
+  answered with something that is not a log (an error page, a proxy's); the
+  answer is printed so it can be read.
+- *"PLUGIN_BYGGSTEG_URL must be an http:// or https:// address"* -- the setting
+  is missing its scheme.
+- *"no step given"* -- the image was run without an argument and without
+  ~BYGGSTEG_STEP~; write ~commands:~ or set ~BYGGSTEG_STEP~.
 - *Job output looks truncated* -- what is printed is exactly what Byggsteg
-  recorded (~log-data~); the raw status response is also kept in the workspace,
-  in ~byggsteg-log-response.json~.
+  recorded; the raw status answer is also kept in the workspace, in
+  ~byggsteg-log-response.json~, and ~BYGGSTEG_DEBUG=1~ shows every request.
 
 ------------------
 

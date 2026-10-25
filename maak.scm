@@ -18,7 +18,7 @@
 ;; The project's tasks, run with Maak: https://codeberg.org/jjba23/maak
 ;;
 ;;   maak --list                 show every task
-;;   maak build                  build the three step images
+;;   maak build                  build the image
 ;;   maak test                   run the end-to-end tests
 ;;
 ;; Only the names in `#:export' below are tasks, so the helpers beside them
@@ -37,7 +37,7 @@
 
 ;; ====== Constants ======
 
-;; The registry and organisation the images are published under; override for
+;; The registry and organisation the image is published under; override for
 ;; your own builds with IMAGE_REGISTRY and IMAGE_ORG.
 (define image-registry
   (or (getenv "IMAGE_REGISTRY") "docker.io"))
@@ -45,12 +45,12 @@
 (define image-org
   (or (getenv "IMAGE_ORG") "jjba23"))
 
-(define image-prefix
+;; One image, one script: the three pipeline steps are three arguments to it.
+(define image-name
   "byggsteg-woodpecker")
 
-;; The three pipeline steps, in the order a pipeline runs them.
-(define steps
-  '("get-token" "submit-job" "poll-job"))
+(define containerfile
+  "byggsteg.containerfile")
 
 ;; The image tag: VERSION when it is set, otherwise the exact git tag we are
 ;; standing on, or the short commit hash away from a tag.
@@ -77,9 +77,9 @@
 
 ;; ====== Helpers ======
 
-;; The full name an image is built and pushed under.
-(define (image step)
-  (~ "~a/~a/~a-~a:~a" image-registry image-org image-prefix step version))
+;; The full name the image is built and pushed under.
+(define (image)
+  (~ "~a/~a/~a:~a" image-registry image-org image-name version))
 
 ;; ====== Tasks ======
 
@@ -87,47 +87,37 @@
   "Default task: list the available tasks."
   (run (list "maak" "--list")))
 
-(define (build . wanted)
-  "Build the step images (all three when none are named)."
-  (for-each (lambda (step)
-              (ct:container-build "."
-                                  #:file (~ "~a.containerfile" step)
-                                  #:tag (image step)))
-            (if (null? wanted) steps wanted)))
+(define (build)
+  "Build the step image."
+  (ct:container-build "." #:file containerfile #:tag (image)))
 
-(define (push . wanted)
-  "Build and then push the step images (all three when none are named)."
-  (apply build wanted)
-  (for-each (lambda (step)
-              (ct:container-push (image step)))
-            (if (null? wanted) steps wanted)))
+(define (push)
+  "Build and then push the step image."
+  (build)
+  (ct:container-push (image)))
 
 (define (lint)
-  "Static analysis of the step scripts and the test runner, with shellcheck."
-  ;; The step scripts are named by a glob, so the shell is asked for the names:
-  ;; `#:expand? #t' is what turns `*.bash' into the files in that directory.
-  (run (list "shellcheck" "-x" "-P" "src/bash/byggsteg"
-             "src/bash/byggsteg/*.bash" "test/run-tests.bash")
-       #:expand? #t))
+  "Static analysis of the step script and the test runner, with shellcheck."
+  (run (list "shellcheck" "-x" "src/bash/byggsteg-woodpecker.bash"
+             "test/run-tests.bash")))
 
 (define (fmt)
-  "Format the step scripts and the test runner, with shfmt."
-  (run (list "shfmt" "-i" "2" "-ci" "-w"
-             "src/bash/byggsteg/*.bash" "test/run-tests.bash")
-       #:expand? #t))
+  "Format the step script and the test runner, with shfmt."
+  (run (list "shfmt" "-i" "2" "-ci" "-w" "src/bash/byggsteg-woodpecker.bash"
+             "test/run-tests.bash")))
 
 (define (test)
   "Run the end-to-end tests against a mock Byggsteg server."
   (run (list "bash" "test/run-tests.bash")))
 
 (define (sizes)
-  "Report the size of each built step image."
+  "Report the size of the built step image."
   ;; What `podman images --format ... | grep byggsteg-woodpecker || true' did,
   ;; with the reading and the matching in Scheme: the listing is asked for once
-  ;; and each line is kept when it names one of these images.  A machine with no
-  ;; such image lists nothing, which is not a failure.
+  ;; and each line is kept when it names the image.  A machine with no such
+  ;; image lists nothing, which is not a failure.
   (for-each (lambda (line)
-              (when (string-contains line image-prefix)
+              (when (string-contains line image-name)
                 (log-info "~a" line)))
             (string-split (ct:container-output
                            (list "images" "--format"
@@ -136,9 +126,8 @@
                           #\newline)))
 
 (define (clean)
-  "Remove the locally built step images."
+  "Remove the locally built step image."
   ;; `podman rmi', not `container-rm': that helper runs `rm', which removes
-  ;; containers and leaves the images this task is named for.  An image that was
+  ;; containers and leaves the image this task is named for.  An image that was
   ;; never built is not a failure, which is what `|| true' said.
-  (ct:container (append (list "rmi") (map image steps))
-                #:allow-failure? #t))
+  (ct:container (list "rmi" (image)) #:allow-failure? #t))

@@ -17,22 +17,38 @@
 ;; You should have received a copy of the Lesser GNU General Public License
 ;; along with byggsteg-woodpecker.  If not, see <https://www.gnu.org/licenses/>.
 
-;; A tiny mock of the Byggsteg HTTP API, used by test/run-tests.bash.
+;; A tiny mock of the Byggsteg JSON API (version 2), used by
+;; test/run-tests.bash.
 ;;
-;; It answers the three endpoints the pipeline steps call, and reads the
-;; scenario it should play from <state-dir>/scenario on every request, so a
-;; test can ask for a login failure, a job that fails, a job that never
-;; finishes, and so on:
+;; It answers the three endpoints the pipeline steps call -- POST
+;; /api/v2/login, POST /api/v2/jobs and GET /api/v2/logs/<log-id> -- in the
+;; shapes pub/openapi.yaml describes, and reads the scenario it should play from
+;; <state-dir>/scenario on every request, so a test can ask for a login failure,
+;; a job that fails, a job that never finishes, and so on:
 ;;
-;;   success           one in-progress poll, then success (with base64 log-data)
-;;   failure           one in-progress poll, then failure (with base64 log-data)
-;;   timeout           always in-progress
-;;   login-error       the login endpoint answers 500
-;;   login-no-token    the login endpoint answers 200 without a token header
-;;   submit-error      the submit endpoint answers 500
-;;   submit-not-json   the submit endpoint answers 200 with a non-JSON body
-;;   submit-no-log-id  the submit endpoint answers 200 without a log-id
-;;   status-not-json   the status endpoint answers 200 with a non-JSON body
+;;   success            one running poll (partial output), then succeeded
+;;   success-quiet      one running poll (the whole output), then succeeded with
+;;                      the output left out: the answer to a `have' that is
+;;                      still the log's length
+;;   failure            one running poll, then failed
+;;   timeout            always running
+;;   login-error        the login endpoint answers 500
+;;   login-no-token     the login endpoint answers 200 without a token, in the
+;;                      header or in the answer
+;;   login-unauthorized the login endpoint answers 401: a wrong password
+;;   submit-error       the submit endpoint answers 500
+;;   submit-forbidden   the submit endpoint answers 403: a token without
+;;                      byggsteg:job-create
+;;   submit-not-json    the submit endpoint answers 201 with a non-JSON body
+;;   submit-no-log-id   the submit endpoint answers 201 with no log at all
+;;   status-not-json    the status endpoint answers 200 with a non-JSON body
+;;   log-not-found      the status endpoint answers 404 for the log
+;;   log-error          the status endpoint answers 500
+;;
+;; It writes down what it was asked (`requests.txt' in the state directory), how
+;; many times it was polled (`poll-count.txt'), and the `have' of every status
+;; request (`have-values.txt'), so the tests can check that the steps speak
+;; /api/v2 and that poll-job reads the output incrementally.
 ;;
 ;; Only the test suite uses this; the images never do.  It is written in Guile
 ;; -- the language Maak, which runs the suite, already needs -- so the tests
@@ -61,10 +77,20 @@
 (define password
   "s3cret")
 
-(define log-id
-  "abc-123")
+(define run-id
+  "run-abc-123")
 
+(define log-id
+  "log-abc-123")
+
+;; The whole output of the job, in the shape a JSON answer has to escape: a
+;; newline, a quote, a backslash and a tab, so the step's own unescaping is
+;; tested by every test that reads the output.
 (define log-output
+  "hello from the byggsteg job\nit printed \"quotes\", a \\ backslash and a\ttab\n")
+
+;; The first line of it, which the first (still running) poll answers with.
+(define log-output-first-line
   "hello from the byggsteg job\n")
 
 (define args
@@ -78,29 +104,6 @@
 
 ;; ====== Little helpers ======
 
-;; base64, hand-rolled: this Guile ships no base64 module, and the client
-;; base64-decodes the log-data the way Byggsteg encodes it.
-(define base64-chars
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
-
-(define (base64-encode-string str)
-  (let* ((bytes (string->utf8 str))
-         (len (bytevector-length bytes)))
-    (let loop ((i 0) (out '()))
-      (if (>= i len)
-          (apply string-append (reverse out))
-          (let* ((b0 (bytevector-u8-ref bytes i))
-                 (b1 (if (< (+ i 1) len) (bytevector-u8-ref bytes (+ i 1)) #f))
-                 (b2 (if (< (+ i 2) len) (bytevector-u8-ref bytes (+ i 2)) #f))
-                 (n (logior (ash b0 16)
-                            (if b1 (ash b1 8) 0)
-                            (if b2 b2 0)))
-                 (c0 (string-ref base64-chars (logand (ash n -18) 63)))
-                 (c1 (string-ref base64-chars (logand (ash n -12) 63)))
-                 (c2 (if b1 (string-ref base64-chars (logand (ash n -6) 63)) #\=))
-                 (c3 (if b2 (string-ref base64-chars (logand n 63)) #\=)))
-            (loop (+ i 3) (cons (string c0 c1 c2 c3) out)))))))
-
 ;; The body arrives as a bytevector (or #f when there is none).
 (define (body->string body)
   (cond ((not body) "")
@@ -109,7 +112,8 @@
         ((port? body) (get-string-all body))
         (else "")))
 
-;; A urlencoded body as an alist of field name to value.
+;; A urlencoded body as an alist of field name to value.  Both what a form
+;; sends and what a script sends with --data-urlencode read the same way.
 (define (form-fields body)
   (if (string-null? body)
       '()
@@ -122,6 +126,22 @@
            (filter (lambda (pair) (positive? (string-length pair)))
                    (string-split body #\&)))))
 
+;; A string as JSON writes it: the four characters an answer cannot carry as
+;; they are, spelled out.
+(define (json-escape str)
+  (let loop ((chars (string->list str)) (out '()))
+    (if (null? chars)
+        (apply string-append (reverse out))
+        (let ((c (car chars)))
+          (loop (cdr chars)
+                (cons (cond ((char=? c #\\) "\\\\")
+                            ((char=? c #\") "\\\"")
+                            ((char=? c #\newline) "\\n")
+                            ((char=? c #\return) "\\r")
+                            ((char=? c #\tab) "\\t")
+                            (else (string c)))
+                      out))))))
+
 (define (respond code content-type body)
   (values (build-response #:code code
                           #:headers (list (cons 'content-type content-type)))
@@ -133,10 +153,19 @@
 (define (respond-json code body)
   (respond code '(application/json) body))
 
+;; The shape every refusal of the API is answered with.
+(define (respond-error code message)
+  (respond-json code (format #f "{\"error\": \"~a\"}" (json-escape message))))
+
 ;; ====== Scenario state ======
 
 (define last-scenario #f)
 (define polls (make-hash-table))
+
+(define (append-to-state name text)
+  (let ((port (open-file (format #f "~a/~a" state-dir name) "a")))
+    (display text port)
+    (close-port port)))
 
 (define (scenario)
   (catch #t
@@ -163,17 +192,42 @@
 
 ;; ====== Response bodies ======
 
-(define (title-base64)
-  (base64-encode-string "a title"))
+(define (run-body status . maybe-log-id)
+  (let ((run-log-id (if (null? maybe-log-id) log-id (car maybe-log-id))))
+    (format #f
+            "{\"id\": \"~a\", \"title\": \"a title\", \"status\": \"~a\", \"created-at\": 1750000000, \"updated-at\": 1750000001, \"log-id\": ~a}"
+            run-id status
+            (if run-log-id (format #f "\"~a\"" run-log-id) "null"))))
 
-(define (status-body success failure in-progress)
+(define (log-body length)
   (format #f
-          "{\"success\": ~a, \"failure\": ~a, \"in-progress\": ~a, \"log-id\": \"~a\", \"title\": \"~a\", \"log-data\": \"~a\"}"
-          success failure in-progress log-id (title-base64)
-          (base64-encode-string log-output)))
+          "{\"id\": \"~a\", \"title\": \"a title\", \"run-id\": \"~a\", \"created-at\": 1750000000, \"updated-at\": 1750000001, \"length\": ~a}"
+          log-id run-id length))
+
+;; One reading of a run's log: the log, the run behind it, and the output --
+;; which is left out of the answer when HAVE is already the log's length, the
+;; way the real API leaves it out.
+(define (log-detail-body status length in-progress view have text)
+  (let ((unchanged (and have (equal? have (number->string length)))))
+    (format #f
+            "{\"log\": ~a, \"run\": ~a, \"artifacts\": [], \"output\": {\"length\": ~a, \"in-progress\": ~a, \"view\": \"~a\", \"changed\": ~a~a}}"
+            (log-body length)
+            (run-body status)
+            length
+            (if in-progress "true" "false")
+            view
+            (if unchanged "false" "true")
+            (if unchanged
+                ""
+                (format #f ", \"text\": \"~a\"" (json-escape text))))))
 
 (define (submit-body)
-  (format #f "{\"log-id\": \"~a\", \"title\": \"~a\"}" log-id (title-base64)))
+  (format #f "{\"run\": ~a, \"log\": ~a}" (run-body "queued") (log-body 0)))
+
+(define (login-body)
+  (format #f
+          "{\"token\": \"~a\", \"account\": {\"id\": \"user-1\", \"username\": \"tester\", \"email\": \"~a\", \"permissions\": [\"byggsteg:job-create\"]}, \"session\": {\"permissions\": [\"byggsteg:job-create\"], \"expires-at\": 1900000000}}"
+          token email))
 
 ;; ====== Endpoints ======
 
@@ -181,70 +235,102 @@
   (let ((scenario-now (scenario)))
     (cond
       ((string=? scenario-now "login-error")
-       (respond-text 500 "login failed"))
-      ;; A 200 the step cannot use: it is authenticated, but told nothing.
+       (respond-error 500 "the deployment could not sign you in"))
+      ;; A token the deployment cannot check is a 401, and asking again with
+      ;; the same password would be answered the same way.
+      ((string=? scenario-now "login-unauthorized")
+       (respond-error 401 "the email and the password do not match an account of this deployment"))
+      ;; A 200 the step cannot use: it is signed in, but told nothing.
       ((string=? scenario-now "login-no-token")
-       (respond-text 200 "ok"))
+       (respond-json 200 "{\"account\": {\"username\": \"tester\"}}"))
       ((and (equal? (assoc-ref fields "email") email)
             (equal? (assoc-ref fields "password") password))
        (values (build-response
                 #:code 200
-                #:headers (list (cons 'content-type '(text/plain))
+                #:headers (list (cons 'content-type '(application/json))
                                 (cons 'x-bewaking-byggsteg token)))
-               "ok"))
+               (login-body)))
       (else
-       (respond-text 401 "bad credentials")))))
+       (respond-error 401 "the email and the password do not match an account of this deployment")))))
 
 (define (handle-submit headers fields)
   (let ((scenario-now (scenario)))
     (cond
       ((string=? scenario-now "submit-error")
-       (respond-text 500 "submit failed"))
+       (respond-error 500 "the deployment could not queue the job"))
+      ((string=? scenario-now "submit-forbidden")
+       (respond-error 403 "the token does not hold byggsteg:job-create"))
       ((not (equal? (assq-ref headers 'x-bewaking-byggsteg) token))
-       (respond-text 401 "no token"))
-      ;; 200 answers the step cannot use: something that is not JSON at all
-      ;; (an error page, a proxy's), and JSON that carries no log-id.
+       (respond-error 401 "the token is missing or cannot be read"))
+      ;; 201 answers the step cannot use: something that is not JSON at all
+      ;; (an error page, a proxy's), and JSON that carries no log to follow.
       ((string=? scenario-now "submit-not-json")
-       (respond-text 200 "<html><body>upstream proxy said no</body></html>"))
+       (respond-text 201 "<html><body>upstream proxy said no</body></html>"))
       ((string=? scenario-now "submit-no-log-id")
-       (respond-json 200 "{\"title\": \"a title\"}"))
+       ;; A run that was queued with no log to follow: the run says so, in the
+       ;; field that is `null' rather than absent.
+       (respond-json 201 (format #f "{\"run\": ~a, \"log\": null}" (run-body "queued" #f))))
       (else
        (call-with-output-file (format #f "~a/last-job-code.txt" state-dir)
          (lambda (port) (display (or (assoc-ref fields "job-code") "") port)))
-       (respond-json 200 (submit-body))))))
+       (respond-json 201 (submit-body))))))
 
-(define (handle-log-status scenario path)
+(define (handle-log-status scenario-now uri path)
   (let* ((id (last (string-split path #\/)))
-         (number (next-poll-number scenario id)))
+         (query (form-fields (or (uri-query uri) "")))
+         (have (assoc-ref query "have"))
+         (view (or (assoc-ref query "view") "rendered"))
+         (number (next-poll-number scenario-now id))
+         (first-line-length (string-length log-output-first-line))
+         (whole-length (string-length log-output)))
+    (append-to-state "have-values.txt" (format #f "~a\n" (or have "")))
     (cond
+      ((string=? scenario-now "log-not-found")
+       (respond-error 404 "no log with that id"))
+      ((string=? scenario-now "log-error")
+       (respond-error 500 "the deployment could not read the log"))
       ;; A 200 that is not a status at all: the step must fail on it, not poll
       ;; on it until the limit.
-      ((string=? scenario "status-not-json")
+      ((string=? scenario-now "status-not-json")
        (respond-text 200 "<html><body>not a byggsteg status</body></html>"))
-      ((or (string=? scenario "timeout") (= number 1))
-       (respond-json 200 (status-body 0 0 1)))
-      ((string=? scenario "failure")
-       (respond-json 200 (status-body 0 1 0)))
+      ;; The output is written once and read twice: the first poll answers
+      ;; with the first line and the run still going, the second with the whole
+      ;; of it -- and, when the client already has that much, with no output at
+      ;; all (`success-quiet').
+      ((= number 1)
+       (if (string=? scenario-now "success-quiet")
+           (respond-json 200 (log-detail-body "running" whole-length #t view have log-output))
+           (respond-json 200 (log-detail-body "running" first-line-length #t view have log-output-first-line))))
+      ((string=? scenario-now "timeout")
+       (respond-json 200 (log-detail-body "running" first-line-length #t view have log-output-first-line)))
+      ((string=? scenario-now "failure")
+       (respond-json 200 (log-detail-body "failed" whole-length #f view have log-output)))
       (else
-       (respond-json 200 (status-body 1 0 0))))))
+       (respond-json 200 (log-detail-body "succeeded" whole-length #f view have log-output))))))
 
 ;; ====== The handler ======
 
 (define (handler request body)
   (let* ((method (request-method request))
-         (path (uri-path (request-uri request)))
+         (uri (request-uri request))
+         (path (uri-path uri))
          (headers (request-headers request))
          (scenario-now (scenario))
          (fields (form-fields (body->string body))))
+    (unless (string=? path "/")
+      (append-to-state "requests.txt"
+                       (format #f "~a ~a~a\n" method path
+                               (let ((query (uri-query uri)))
+                                 (if query (format #f "?~a" query) "")))))
     (cond
-      ((and (eq? method 'POST) (string=? path "/api/v1/login"))
+      ((and (eq? method 'POST) (string=? path "/api/v2/login"))
        (handle-login fields))
-      ((and (eq? method 'POST) (string=? path "/api/v1/jobs/manage/submit"))
+      ((and (eq? method 'POST) (string=? path "/api/v2/jobs"))
        (handle-submit headers fields))
-      ((and (eq? method 'GET) (string-prefix? "/api/v1/logs/" path))
-       (handle-log-status scenario-now path))
+      ((and (eq? method 'GET) (string-prefix? "/api/v2/logs/" path))
+       (handle-log-status scenario-now uri path))
       (else
-       (respond-text 404 "not found")))))
+       (respond-error 404 "not found")))))
 
 ;; ====== Run ======
 
