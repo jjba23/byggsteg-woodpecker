@@ -127,12 +127,11 @@ steps:
   get-byggsteg-token:
     name: "🔒 Get token @ Byggsteg"
     image: *byggsteg_image
-    commands:
-      - /bin/byggsteg-woodpecker get-token
     when:
       - event: [ push ]
         branch: [ *main_branch ]
     settings:
+      BYGGSTEG_STEP: get-token
       BYGGSTEG_URL:
         from_secret: BYGGSTEG_URL
       BYGGSTEG_EMAIL:
@@ -143,12 +142,11 @@ steps:
   submit-byggsteg-job:
     name: "💼 Submit job @ Byggsteg"
     image: *byggsteg_image
-    commands:
-      - /bin/byggsteg-woodpecker submit-job
     when:
       - event: [ push ]
         branch: [ *main_branch ]
     settings:
+      BYGGSTEG_STEP: submit-job
       BYGGSTEG_URL: *byggsteg_url
       BYGGSTEG_JOB_CODE: |
         (lambda()
@@ -160,26 +158,20 @@ steps:
   poll-byggsteg-job:
     name: "🔄 Poll job status @ Byggsteg"
     image: *byggsteg_image
-    commands:
-      - /bin/byggsteg-woodpecker poll-job
     when:
       - event: [ push ]
         branch: [ *main_branch ]
     settings:
-      BYGGSTEG_URL: *byggsteg_url
-#+end_src
-
-~commands~ replaces the image's entrypoint, which is how one image runs three
-different steps. If you would rather not write ~commands~, the same steps can be
-named as a setting instead:
-
-#+begin_src yaml
-  poll-byggsteg-job:
-    image: *byggsteg_image
-    settings:
       BYGGSTEG_STEP: poll-job
       BYGGSTEG_URL: *byggsteg_url
 #+end_src
+
+Which of the three steps a step is, it says in its settings, as
+~BYGGSTEG_STEP~. That is not decoration: Woodpecker refuses a step that has both
+~commands~ and ~settings~ ("Cannot configure both `commands` and `settings`"), so
+the image is driven as a plugin and the step name travels as a setting. Writing
+~commands: [/bin/byggsteg-woodpecker poll-job]~ *and* ~settings~ is the mistake
+this note exists to prevent -- a pipeline written that way does not start at all.
 
 Woodpecker turns each ~settings~ key into a ~PLUGIN_*~ environment variable that
 the script reads (so ~BYGGSTEG_URL~ is seen as ~PLUGIN_BYGGSTEG_URL~, and
@@ -188,6 +180,22 @@ Woodpecker build context, which is what makes the ~%%CI_*%%~ placeholders in
 ~BYGGSTEG_JOB_CODE~ work: before submitting, submit-job replaces every
 ~%%NAME%%~ with the value of the environment variable ~NAME~, without ever
 evaluating the result as shell code.
+
+If you do want ~commands~ -- to run the bridge from a step that also does
+something else, or to pass the step as an argument -- then the configuration
+cannot stay in ~settings~, and it has to be written in ~environment~ with the
+prefix ~settings~ would have added, because that prefix is the only thing the
+two forms differ in:
+
+#+begin_src yaml
+  poll-byggsteg-job:
+    image: *byggsteg_image
+    commands:
+      - /bin/byggsteg-woodpecker poll-job
+    environment:
+      PLUGIN_BYGGSTEG_URL: *byggsteg_url
+#+end_src
+
 
 ** One step instead of three
 
@@ -198,9 +206,8 @@ machine), ~all~ does the sign-in, the submit and the poll in that order:
   byggsteg:
     name: "🧱 Byggsteg"
     image: *byggsteg_image
-    commands:
-      - /bin/byggsteg-woodpecker all
     settings:
+      BYGGSTEG_STEP: all
       BYGGSTEG_URL: *byggsteg_url
       BYGGSTEG_EMAIL:
         from_secret: BYGGSTEG_EMAIL
@@ -218,6 +225,11 @@ Settings are Woodpecker ~settings~ keys; each becomes a ~PLUGIN_~-prefixed
 environment variable for the script. ~BYGGSTEG_URL~ is required by every step,
 and must be an ~http://~ or ~https://~ address (a value without a scheme is
 refused before anything is attempted).
+
+Every step also reads ~BYGGSTEG_STEP~: which of the steps to run -- ~get-token~,
+~submit-job~, ~poll-job~ or ~all~. That is how a step that writes no ~commands~
+says which one it is (see "Example usage"); the argument the image is given
+means the same thing.
 
 ** get-token
 
@@ -446,13 +458,17 @@ The three steps are still three steps; they are named on the command line now:
    get-byggsteg-token:
 -    image: *get_token_image
 +    image: *byggsteg_image
-+    commands:
-+      - /bin/byggsteg-woodpecker get-token
+     settings:
++      BYGGSTEG_STEP: get-token
+       BYGGSTEG_EMAIL:
 #+end_src
 
-The settings are unchanged, and so is the interface between the steps: the token
-still goes in ~x-bewaking-byggsteg~ and the log id in ~byggsteg-log-id~. What
-changed is the API the steps call, how a failure is reported, and that a
+Each of the three steps gets the same two edits: the one image in place of the
+image it had, and its own name in ~BYGGSTEG_STEP~. Nothing else needs to move --
+the settings you already had stay where they are, ~BYGGSTEG_URL~ among them, and
+the interface between the steps is unchanged: the token still goes in
+~x-bewaking-byggsteg~ and the log id in ~byggsteg-log-id~. What changed besides
+the image is the API the steps call, how a failure is reported, and that a
 refusal which cannot change is no longer retried.
 
 ------------------
@@ -480,7 +496,9 @@ refusal which cannot change is no longer retried.
 - *"PLUGIN_BYGGSTEG_URL must be an http:// or https:// address"* -- the setting
   is missing its scheme.
 - *"no step given"* -- the image was run without an argument and without
-  ~BYGGSTEG_STEP~; write ~commands:~ or set ~BYGGSTEG_STEP~.
+  ~BYGGSTEG_STEP~; set ~BYGGSTEG_STEP~ in the step's ~settings~ (passing the step
+  in ~commands~ instead means the configuration has to be in ~environment~, as
+  ~PLUGIN_*~ variable names: ~settings~ and ~commands~ cannot be mixed).
 - *Job output looks truncated* -- what is printed is exactly what Byggsteg
   recorded; the raw status answer is also kept in the workspace, in
   ~byggsteg-log-response.json~, and ~BYGGSTEG_DEBUG=1~ shows every request.
