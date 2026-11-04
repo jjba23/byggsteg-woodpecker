@@ -8,6 +8,9 @@
 
 [[https://jointhefreeworld.org/ggg/dist/shell-bash.svg]] [[https://jointhefreeworld.org/ggg/dist/maak.svg]] [[https://jointhefreeworld.org/ggg/dist/license-lgpl3+.svg]] [[https://jointhefreeworld.org/ggg/dist/license-fdl13+.svg]] [[https://img.shields.io/badge/CI-Byggsteg%20%7C%20Woodpecker-2ea44f.svg]]
 
+#+attr_html: :width 160 :alt Byggsteg Woodpecker logo
+[[file:logo.svg]]
+
 /bridge Woodpecker CI to Byggsteg pipelines/
 
 Integrate [[https://codeberg.org/jjba23/byggsteg][Byggsteg]] pipelines into your [[https://woodpecker-ci.org/][Woodpecker CI]] setup (for example at Codeberg): one small Alpine image that signs in to Byggsteg, hands it a job, and faithfully reports the job's outcome back to Woodpecker.
@@ -195,7 +198,6 @@ two forms differ in:
     environment:
       PLUGIN_BYGGSTEG_URL: *byggsteg_url
 #+end_src
-
 
 ** One step instead of three
 
