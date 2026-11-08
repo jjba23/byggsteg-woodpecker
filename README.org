@@ -116,7 +116,7 @@ shows you the same output plus the reason it failed -- no per-poll noise.
 
 #+begin_src yaml
 variables:
-  - &byggsteg_image 'docker.io/jjba23/byggsteg-woodpecker:v0.3.0'
+  - &byggsteg_image 'docker.io/jjba23/byggsteg-woodpecker:v0.4.0'
   - &byggsteg_url 'https://byggsteg.jointhefreeworld.org'
   - &main_branch 'trunk'
 
