@@ -6,7 +6,7 @@
 #+options: toc:nil num:nil
 #+HTML_HEAD: <link rel="stylesheet" type="text/css" href="https://jointhefreeworld.org/static/css/jointhefreeworld.css" />
 
-[[https://jointhefreeworld.org/ggg/dist/shell-bash.svg]] [[https://jointhefreeworld.org/ggg/dist/maak.svg]] [[https://jointhefreeworld.org/ggg/dist/license-lgpl3+.svg]] [[https://jointhefreeworld.org/ggg/dist/license-fdl13+.svg]] [[https://img.shields.io/badge/CI-Byggsteg%20%7C%20Woodpecker-2ea44f.svg]]
+[[https://jointhefreeworld.org/ggg/dist/shell-bash.svg]] [[https://jointhefreeworld.org/ggg/dist/maak.svg]] [[https://img.shields.io/badge/license-MIT-blue.svg]] [[https://img.shields.io/badge/CI-Byggsteg%20%7C%20Woodpecker-2ea44f.svg]]
 
 #+attr_html: :width 160 :alt Byggsteg Woodpecker logo
 [[file:logo.svg]]
@@ -507,18 +507,21 @@ refusal which cannot change is no longer retried.
 
 ------------------
 
-* Licensing
+* Licence
 
-byggsteg-woodpecker and all of its source code are free software, licensed under
-the Lesser GNU General Public License v3 (or newer at your convenience).
+byggsteg-woodpecker and all of its source code are free software, released under
+the MIT licence: use it, copy it, change it, ship it, commercially or not.
 
-https://www.gnu.org/licenses/lgpl-3.0.html
+https://opensource.org/license/mit
 
-The documentation and examples, including this document, which are provided with
-byggsteg-woodpecker, are all licensed under the GNU Free Documentation License
-v1.3 (or newer at your convenience).
+The licence is short but it is not nothing -- the permission notice and the
+disclaimer are what it says, and both are in [[file:LICENSE][LICENSE]], which
+belongs with every copy of this software.  Every source file states the same
+thing in two lines of its own header, in the machine-readable
+=SPDX-License-Identifier: MIT= form.
 
-https://www.gnu.org/licenses/fdl-1.3.html
+The documentation and examples, this document included, are under that same
+licence rather than a separate one for prose.
 
 ------------------
 
